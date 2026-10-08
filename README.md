@@ -1,5 +1,7 @@
 # tata
 
+![tata](docs/cover.jpg)
+
 Ore e buste paga di **una** lavoratrice o lavoratore domestico, in casa propria (self-hosted).
 
 Pensata per una famiglia che assume una baby sitter a ore con il CCNL lavoro domestico del
