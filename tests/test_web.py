@@ -35,8 +35,16 @@ def basic(password: str) -> dict[str, str]:
     return {"Authorization": f"Basic {token}"}
 
 
+def settings(tmp_path: Path) -> Settings:
+    return Settings(data_dir=tmp_path, rates_dir=RATES_DIR, password=PASSWORD)
+
+
+def end_of_2026() -> date:
+    return date(2026, 12, 31)
+
+
 def client(tmp_path: Path) -> TestClient:
-    app = create_app(Settings(data_dir=tmp_path, rates_dir=RATES_DIR, password=PASSWORD))
+    app = create_app(settings(tmp_path), end_of_2026)
     return TestClient(app, headers=basic(PASSWORD), follow_redirects=False)
 
 
@@ -47,7 +55,7 @@ def hired(tmp_path: Path) -> TestClient:
 
 
 def test_wrong_password_is_refused(tmp_path: Path) -> None:
-    app = create_app(Settings(data_dir=tmp_path, rates_dir=RATES_DIR, password=PASSWORD))
+    app = create_app(settings(tmp_path), end_of_2026)
     assert TestClient(app, headers=basic("sbagliata")).get("/contratto").status_code == 401
     assert TestClient(app).get("/contratto").status_code == 401
 
@@ -176,3 +184,59 @@ def test_tfr_advance(tmp_path: Path) -> None:
     r = c.post("/anno/2026/anticipi", data={"giorno": "2026-12-20", "importo": "29,45"})
     assert r.status_code == 303
     assert "100,00" in c.get("/anno/2026").text  # fund 129,45 - 29,45
+
+
+def add(c: TestClient, kind: str, dal: str, al: str, inizio: str, fine: str) -> int:
+    data = {"kind": kind, "dal": dal, "al": al, "inizio": inizio, "fine": fine, "note": ""}
+    return c.post("/eventi", data=data).status_code
+
+
+def test_conflicting_event_is_refused_at_insert_and_the_month_stays_usable(tmp_path: Path) -> None:
+    c = hired(tmp_path)
+    assert add(c, "ferie", "2026-11-02", "2026-11-06", "", "") == 303
+    assert add(c, "malattia", "2026-11-04", "2026-11-05", "", "") == 400
+    assert c.get("/mese/2026/11").status_code == 200
+    assert c.get("/anno/2026").status_code == 200
+
+
+def test_timed_event_before_hire_is_refused(tmp_path: Path) -> None:
+    c = hired(tmp_path)
+    assert add(c, "extra", "2026-10-05", "", "09:00", "10:00") == 400
+    assert c.get("/mese/2026/10").status_code == 200
+
+
+def test_contract_change_that_orphans_events_is_refused(tmp_path: Path) -> None:
+    c = hired(tmp_path)
+    assert add(c, "extra", "2026-10-16", "", "18:00", "20:00") == 303
+    later = {**CONTRACT_FORM, "assunzione": "2026-10-19"}
+    assert c.post("/contratto", data=later).status_code == 400
+    assert c.get("/mese/2026/10").status_code == 200
+
+
+def test_months_must_be_finalized_in_order(tmp_path: Path) -> None:
+    c = hired(tmp_path)
+    r = c.post("/mese/2026/11/finalizza")
+    assert r.status_code == 400
+    assert "ottobre" in r.text
+    assert c.post("/mese/2026/10/finalizza").status_code == 303
+    assert c.post("/mese/2026/11/finalizza").status_code == 303
+
+
+def test_ambiguous_thousands_dot_is_refused(tmp_path: Path) -> None:
+    c = hired(tmp_path)
+    r = c.post("/anno/2026/anticipi", data={"giorno": "2026-12-20", "importo": "1.500"})
+    assert r.status_code == 400
+    assert "virgola" in r.text
+
+
+def test_year_page_marks_future_quarters_as_projection(tmp_path: Path) -> None:
+    hired(tmp_path)
+
+    def mid_november() -> date:
+        return date(2026, 11, 15)
+
+    c = TestClient(create_app(settings(tmp_path), mid_november), headers=basic(PASSWORD))
+    page = c.get("/anno/2026")
+    assert "stima" in page.text
+    # TFR through November only: (398,70 + 580,33) / 13,5 = 72,52
+    assert "72,52" in page.text

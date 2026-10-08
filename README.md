@@ -27,7 +27,7 @@ The domestic employer is not a *sostituto d'imposta*: no IRPEF withholding, no C
 | Malattia | 8/10/15 paid days per 365 by anzianità; 50% to the 3rd consecutive day, then 100%; 1/30 of monthly pay per calendar day | art. 27, chiarimento 2 |
 | Scatti | +4% of the minimum per biennio, from the following month, max 7 | art. 37 |
 | Tredicesima | one month's pay (weekly hours × 52/12), 1/12 per month with ≥ 15 days of service | art. 39, chiarimento 4 |
-| TFR | yearly pay / 13,5, revalued 1,5% + 75% ISTAT | art. 41 |
+| TFR | yearly pay / 13,5 (full pay counted on sick days), revalued 1,5% + 75% ISTAT | art. 41, art. 2120 c.c. |
 | INPS band | paga oraria × 13/12 → hourly contribution; flat rate above 24 h/week | INPS Circ. 9/2026 |
 | Cassa Colf | 0,06 €/h, 0,02 worker | art. 54 |
 | Deduction | employer INPS share paid in the year, max 1.549,37 € | art. 10 c.2 TUIR |
@@ -36,7 +36,9 @@ Overtime is assigned to the chronologically latest minutes of the day/week. Ever
 changes in January lives in [`rates/<year>.yaml`](rates/2026.yaml) with its source.
 
 **Not supported** (raises or is out of scope): fixed-term contracts (contributo addizionale),
-live-in workers (vitto/alloggio), more than one worker.
+live-in workers (vitto/alloggio), more than one worker, hires before the first rates file (2026).
+The contract has no history: a raise or a new schedule recomputes every month not yet
+finalized, so finalize each month (in order, enforced) once it is paid.
 
 **To double-check** against official texts: INPS band 2 (1,92 €/h) and the >24 h rate come from a
 secondary source; INPS hours for sick days are taken as the scheduled hours of those days.

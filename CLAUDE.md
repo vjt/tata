@@ -48,6 +48,12 @@ Calc modules never touch the DB; the store never computes.
   classifications, highest wins (festivo/domenica 60% > straordinario notturno 50% > diurno 25%
   > 40–44h 10% > notturno ordinario 20%). Straordinario = beyond 8 h/day or 40 h/week,
   assigned to the chronologically LATEST minutes.
+- **Validate on write.** Events and contract changes are checked against the calculators before
+  they are stored; a stored inconsistency would brick every page that sums the year.
+- **Months close in order.** Finalizing requires the previous employed month finalized. The
+  contract has no history: changes recompute every open month.
+- **TFR imponibile** = lordo + the unpaid share of sick days (art. 2120 c.3 c.c.). Ferie taken in
+  advance are never deducted silently at termination.
 - **INPS fascia** from retribuzione oraria effettiva = paga oraria × 13/12 (13ma rateo; no vitto/
   alloggio for non conviventi). Contributions on ore retribuite (worked + festività + ferie +
   permessi + scheduled hours of paid sick days). Out of scope by design: tempo determinato

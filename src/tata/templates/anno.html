@@ -16,7 +16,7 @@
     {% for q in quarters %}
       {% set p = paid.get((q.year, q.quarter)) %}
       <tr>
-        <td>{{ q.quarter }}°</td>
+        <td>{{ q.quarter }}°{% if q.quarter in projected %} <small class="warn">stima</small>{% endif %}</td>
         <td>{{ q.ore | num }}</td>
         <td>{{ q.inps_totale | eur }}</td>
         <td>{{ q.inps_datore | eur }}</td>
@@ -48,7 +48,7 @@
     <tbody>
     {% for s in slips %}
       <tr>
-        <td><a href="/mese/{{ s.year }}/{{ s.month }}">{{ mesi[s.month] }}</a></td>
+        <td><a href="/mese/{{ s.year }}/{{ s.month }}">{{ mesi[s.month] }}</a>{% if s.month > current %} <small class="warn">stima</small>{% endif %}</td>
         <td>{{ s.ore_retribuite | num }}</td>
         <td>{{ s.lordo | eur }}</td>
         <td>{{ (s.trattenuta_inps + s.trattenuta_cassa_colf) | eur }}</td>
@@ -62,6 +62,7 @@
 
 <section class="card">
   <h2>TFR</h2>
+  <p class="hint">Fondo maturato fino al mese corrente.</p>
   <table class="lines">
     <thead><tr><th>Anno</th><th>Imponibile</th><th>Quota</th><th>Rivalutazione</th><th>Anticipi</th><th>Fondo</th></tr></thead>
     <tbody>

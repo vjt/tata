@@ -1,8 +1,13 @@
 """FastAPI app: server-rendered pages, one password, no JavaScript."""
 
+# Route handlers are registered by decorator and never called by name; pyright cannot see that.
+# pyright: reportUnusedFunction=false
+
 import calendar
 import os
+import re
 import secrets
+from collections.abc import Callable
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -28,7 +33,7 @@ from tata.annual import (
 from tata.festivita import festivita
 from tata.hours import month_work, range_days
 from tata.inps import quarter_contributions, quarter_months
-from tata.models import Contract, EventKind, Frozen, Livello, Payment, Span
+from tata.models import Contract, Event, EventKind, Frozen, Livello, Payment, Span
 from tata.payslip import Payslip, compute_payslip
 from tata.pdf import render_pdf
 from tata.rates import RatesBook
@@ -47,6 +52,13 @@ class Settings(Frozen):
     password: str
 
 
+Clock = Callable[[], date]
+
+
+def rome_today() -> date:
+    return datetime.now(ROME).date()
+
+
 def app_from_env() -> FastAPI:
     """The only place that reads the environment (uvicorn --factory entry point)."""
     return create_app(
@@ -54,11 +66,12 @@ def app_from_env() -> FastAPI:
             data_dir=Path(os.environ["TATA_DATA_DIR"]),
             rates_dir=Path(os.environ["TATA_RATES_DIR"]),
             password=os.environ["TATA_PASSWORD"],
-        )
+        ),
+        rome_today,
     )
 
 
-def create_app(settings: Settings) -> FastAPI:
+def create_app(settings: Settings, today: Clock) -> FastAPI:
     if not settings.password:
         raise ValueError("TATA_PASSWORD vuota")
     store = Store(settings.data_dir / "tata.sqlite")
@@ -75,14 +88,14 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.exception_handler(ValueError)
     @app.exception_handler(FileNotFoundError)
-    async def invalid(request: Request, exc: Exception) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+    async def invalid(request: Request, exc: Exception) -> HTMLResponse:
         """Bad input or a missing rates file: show the reason, never a blank 500."""
         return templates.TemplateResponse(
             request, "errore.html", {"message": str(exc)}, status_code=400
         )
 
     @app.exception_handler(KeyError)
-    async def not_found(request: Request, exc: KeyError) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+    async def not_found(request: Request, exc: KeyError) -> HTMLResponse:
         return templates.TemplateResponse(
             request, "errore.html", {"message": f"non trovato: {exc}"}, status_code=404
         )
@@ -94,8 +107,13 @@ def create_app(settings: Settings) -> FastAPI:
         return contract
 
     @app.exception_handler(_Redirect)
-    async def redirect(request: Request, exc: _Redirect) -> RedirectResponse:  # pyright: ignore[reportUnusedFunction]
+    async def redirect(request: Request, exc: _Redirect) -> RedirectResponse:
         return RedirectResponse(exc.location, status_code=303)
+
+    def check_events(contract: Contract, events: list[Event]) -> None:
+        """Raise ValueError now, at write time, rather than bricking a month page later."""
+        for year, month in sorted({(e.day.year, e.day.month) for e in events}):
+            month_work(contract, events, year, month, book.get(year))
 
     def source(contract: Contract) -> PayslipSource:
         events = store.events()
@@ -109,15 +127,15 @@ def create_app(settings: Settings) -> FastAPI:
         return get
 
     @app.get("/")
-    def home() -> RedirectResponse:  # pyright: ignore[reportUnusedFunction]
+    def home() -> RedirectResponse:
         require_contract()
-        today = datetime.now(ROME).date()
-        return RedirectResponse(f"/mese/{today.year}/{today.month}", status_code=303)
+        now = today()
+        return RedirectResponse(f"/mese/{now.year}/{now.month}", status_code=303)
 
     # ---- contract
 
     @app.get("/contratto", response_class=HTMLResponse)
-    def contract_form(request: Request) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+    def contract_form(request: Request) -> HTMLResponse:
         return templates.TemplateResponse(
             request,
             "contratto.html",
@@ -125,7 +143,7 @@ def create_app(settings: Settings) -> FastAPI:
         )
 
     @app.post("/contratto")
-    async def contract_save(request: Request) -> RedirectResponse:  # pyright: ignore[reportUnusedFunction]
+    async def contract_save(request: Request) -> RedirectResponse:
         form = await request.form()
         day, month = (int(x) for x in _field(form, "patrono").split("/"))
         cessazione = _field(form, "cessazione")
@@ -143,13 +161,14 @@ def create_app(settings: Settings) -> FastAPI:
             patrono_giorno=day,
             orario=tuple(_spans(_field(form, f"orario_{d}")) for d in range(7)),
         )
+        check_events(contract, store.events())
         store.save_contract(contract)
         return RedirectResponse("/", status_code=303)
 
     # ---- month
 
     @app.get("/mese/{year}/{month}", response_class=HTMLResponse)
-    def month_page(request: Request, year: int, month: int) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+    def month_page(request: Request, year: int, month: int) -> HTMLResponse:
         contract = require_contract()
         events = store.events()
         rates = book.get(year)
@@ -183,7 +202,7 @@ def create_app(settings: Settings) -> FastAPI:
         )
 
     @app.get("/mese/{year}/{month}/prospetto.pdf")
-    def payslip_pdf(request: Request, year: int, month: int) -> Response:  # pyright: ignore[reportUnusedFunction]
+    def payslip_pdf(request: Request, year: int, month: int) -> Response:
         contract = require_contract()
         slip = source(contract)(year, month)
         html = templates.get_template("prospetto_pdf.html").render(
@@ -195,15 +214,18 @@ def create_app(settings: Settings) -> FastAPI:
         return _pdf(render_pdf(html), f"prospetto-{year}-{month:02d}.pdf")
 
     @app.post("/mese/{year}/{month}/finalizza")
-    def finalize(year: int, month: int) -> RedirectResponse:  # pyright: ignore[reportUnusedFunction]
+    def finalize(year: int, month: int) -> RedirectResponse:
         contract = require_contract()
+        py, pm = (year - 1, 12) if month == 1 else (year, month - 1)
+        if employed_months(contract, py, pm)[-1:] == [pm] and store.final_payslip(py, pm) is None:
+            raise ValueError(f"finalizza prima {MESI[pm]} {py}: i mesi si chiudono in ordine")
         store.finalize(compute_payslip(contract, store.events(), year, month, book.get(year)))
         return RedirectResponse(f"/mese/{year}/{month}", status_code=303)
 
     # ---- events
 
     @app.post("/eventi")
-    async def add_event(request: Request) -> RedirectResponse:  # pyright: ignore[reportUnusedFunction]
+    async def add_event(request: Request) -> RedirectResponse:
         contract = require_contract()
         form = await request.form()
         kind = EventKind(_field(form, "kind"))
@@ -217,23 +239,26 @@ def create_app(settings: Settings) -> FastAPI:
             raise ValueError("un orario vale per un giorno solo")
         if not days:
             raise ValueError("nessun giorno dell'intervallo è utilizzabile per questo evento")
+        note = _field(form, "note")
+        drafts = [Event(id=0, day=day, kind=kind, span=span, note=note) for day in days]
+        check_events(contract, store.events() + drafts)
         for day in days:
-            store.add_event(day, kind, span, _field(form, "note"))
+            store.add_event(day, kind, span, note)
         return RedirectResponse(f"/mese/{first.year}/{first.month}", status_code=303)
 
     @app.post("/eventi/{event_id}/elimina")
-    def delete_event(event_id: int) -> RedirectResponse:  # pyright: ignore[reportUnusedFunction]
+    def delete_event(event_id: int) -> RedirectResponse:
         day = store.delete_event(event_id)
         return RedirectResponse(f"/mese/{day.year}/{day.month}", status_code=303)
 
     # ---- year
 
     @app.get("/anno")
-    def this_year() -> RedirectResponse:  # pyright: ignore[reportUnusedFunction]
-        return RedirectResponse(f"/anno/{datetime.now(ROME).year}", status_code=303)
+    def this_year() -> RedirectResponse:
+        return RedirectResponse(f"/anno/{today().year}", status_code=303)
 
     @app.get("/anno/{year}", response_class=HTMLResponse)
-    def year_page(request: Request, year: int) -> HTMLResponse:  # pyright: ignore[reportUnusedFunction]
+    def year_page(request: Request, year: int) -> HTMLResponse:
         contract = require_contract()
         src = source(contract)
         months = employed_months(contract, year, 12)
@@ -243,7 +268,11 @@ def create_app(settings: Settings) -> FastAPI:
             if any(m in months for m in quarter_months(q))
         ]
         paid = {(p.year, p.quarter): p for p in store.payments()}
-        last_month = months[-1] if months else 12
+        now = today()
+        # Months after today are a projection from the schedule: TFR stops at today's month.
+        current = 12 if year < now.year else (0 if year > now.year else now.month)
+        last_month = min(months[-1] if months else 12, max(current, 1))
+        projected = {q.quarter for q in quarters if quarter_months(q.quarter)[-1] > current}
         return templates.TemplateResponse(
             request,
             "anno.html",
@@ -251,7 +280,9 @@ def create_app(settings: Settings) -> FastAPI:
                 "year": year,
                 "quarters": quarters,
                 "paid": paid,
+                "projected": projected,
                 "slips": year_payslips(contract, year, 12, src),
+                "current": current,
                 "tfr": tfr(contract, store.advances(), year, last_month, src, book),
                 "advances": [a for a in store.advances() if a.day.year == year],
                 "mesi": MESI,
@@ -259,7 +290,7 @@ def create_app(settings: Settings) -> FastAPI:
         )
 
     @app.post("/anno/{year}/versamenti")
-    async def record_payment(request: Request, year: int) -> RedirectResponse:  # pyright: ignore[reportUnusedFunction]
+    async def record_payment(request: Request, year: int) -> RedirectResponse:
         contract = require_contract()
         form = await request.form()
         quarter = int(_field(form, "trimestre"))
@@ -282,7 +313,7 @@ def create_app(settings: Settings) -> FastAPI:
         return RedirectResponse(f"/anno/{year}", status_code=303)
 
     @app.post("/anno/{year}/anticipi")
-    async def add_advance(request: Request, year: int) -> RedirectResponse:  # pyright: ignore[reportUnusedFunction]
+    async def add_advance(request: Request, year: int) -> RedirectResponse:
         form = await request.form()
         store.add_advance(
             date.fromisoformat(_field(form, "giorno")), _decimal(_field(form, "importo"))
@@ -290,7 +321,7 @@ def create_app(settings: Settings) -> FastAPI:
         return RedirectResponse(f"/anno/{year}", status_code=303)
 
     @app.get("/anno/{year}/attestazione.pdf")
-    def attestazione_pdf(year: int) -> Response:  # pyright: ignore[reportUnusedFunction]
+    def attestazione_pdf(year: int) -> Response:
         contract = require_contract()
         html = templates.get_template("attestazione_pdf.html").render(
             att=attestazione(contract, year, source(contract)),
@@ -300,7 +331,7 @@ def create_app(settings: Settings) -> FastAPI:
         return _pdf(render_pdf(html), f"attestazione-{year}.pdf")
 
     @app.get("/anno/{year}/deduzioni.yaml")
-    def deduction_yaml(year: int) -> PlainTextResponse:  # pyright: ignore[reportUnusedFunction]
+    def deduction_yaml(year: int) -> PlainTextResponse:
         require_contract()
         d = deduzione(store.payments(), year, book.get(year))
         return PlainTextResponse(
@@ -352,6 +383,8 @@ def _field(form: FormData, name: str) -> str:
 
 
 def _decimal(text: str) -> Decimal:
+    if "," not in text and re.fullmatch(r"\d{1,3}(\.\d{3})+", text):
+        raise ValueError(f"{text!r} è ambiguo: usa la virgola per i decimali (1.500,00 o 1,50)")
     try:
         return Decimal(text.replace(".", "").replace(",", ".") if "," in text else text)
     except InvalidOperation as e:
