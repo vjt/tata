@@ -49,7 +49,8 @@ class Payslip(Frozen):
     lordo: Decimal
     ore_retribuite: Decimal  # hours declared to INPS / Cassa Colf
     oraria_effettiva: Decimal  # paga oraria + 1/12 tredicesima: picks the INPS band
-    contributo: Contributo
+    contributo: Contributo  # INPS, per hour
+    cassa_colf: Contributo  # per hour
     trattenuta_inps: Decimal
     trattenuta_cassa_colf: Decimal
     netto: Decimal
@@ -174,6 +175,7 @@ def compute_payslip(
         ore_retribuite=ore,
         oraria_effettiva=oraria_effettiva,
         contributo=contributo,
+        cassa_colf=rates.inps.cassa_colf,
         trattenuta_inps=trattenuta_inps,
         trattenuta_cassa_colf=trattenuta_cassa,
         netto=lordo - trattenuta_inps - trattenuta_cassa,
