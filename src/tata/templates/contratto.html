@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}contratto · tata{% endblock %}
+{% set c = contract %}
+{% block content %}
+<h1>Contratto</h1>
+<form method="post" action="/contratto" class="card form">
+  <fieldset>
+    <legend>Datore di lavoro</legend>
+    <label>Nome e cognome <input name="datore_nome" required value="{{ c.datore_nome if c }}"></label>
+    <label>Codice fiscale <input name="datore_cf" required value="{{ c.datore_cf if c }}"></label>
+  </fieldset>
+  <fieldset>
+    <legend>Lavoratore</legend>
+    <label>Nome e cognome <input name="lavoratore_nome" required value="{{ c.lavoratore_nome if c }}"></label>
+    <label>Codice fiscale <input name="lavoratore_cf" required value="{{ c.lavoratore_cf if c }}"></label>
+  </fieldset>
+  <fieldset>
+    <legend>Rapporto</legend>
+    <label>Livello
+      <select name="livello">
+        {% for l in livelli %}<option {{ "selected" if (c and c.livello == l) or (not c and l == "BS") }}>{{ l }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Paga oraria (€) <input name="paga_oraria" required inputmode="decimal" value="{{ c.paga_oraria | num if c }}"></label>
+    <label class="check"><input type="checkbox" name="tab_h" {{ "checked" if c and c.tab_h }}> baby sitter di bambini sotto i 6 anni (indennità tab. H)</label>
+    <label>Assunzione <input type="date" name="assunzione" required value="{{ c.assunzione.isoformat() if c }}"></label>
+    <label>Cessazione <input type="date" name="cessazione" value="{{ c.cessazione.isoformat() if c and c.cessazione }}"></label>
+    <label>Santo patrono (gg/mm) <input name="patrono" required pattern="\d{1,2}/\d{1,2}" value="{{ '%02d/%02d' % (c.patrono_giorno, c.patrono_mese) if c }}"></label>
+  </fieldset>
+  <fieldset>
+    <legend>Orario settimanale</legend>
+    <p class="hint">Intervalli separati da virgola, es. <code>08:00-08:45, 15:45-18:00</code>. Vuoto = riposo.</p>
+    {% for g in giorni %}
+    <label>{{ g }} <input name="orario_{{ loop.index0 }}" value="{{ c.orario[loop.index0] | map('string') | join(', ') if c }}"></label>
+    {% endfor %}
+  </fieldset>
+  <button>Salva</button>
+</form>
+{% endblock %}

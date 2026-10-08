@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="it">
+<head><meta charset="utf-8"><title>Prospetto paga {{ mese }} {{ slip.year }}</title><style>{{ css | safe }}</style></head>
+<body>
+<h1>Prospetto paga · {{ mese }} {{ slip.year }}</h1>
+<table class="parties">
+  <tr>
+    <td><strong>Datore di lavoro</strong><br>{{ slip.contract.datore_nome }}<br>C.F. {{ slip.contract.datore_cf }}</td>
+    <td><strong>Lavoratore</strong><br>{{ slip.contract.lavoratore_nome }}<br>C.F. {{ slip.contract.lavoratore_cf }}</td>
+  </tr>
+  <tr>
+    <td colspan="2">CCNL lavoro domestico · livello {{ slip.contract.livello }} · non convivente, a ore ·
+      assunzione {{ slip.contract.assunzione | dmy }}{% if slip.contract.cessazione %} · cessazione {{ slip.contract.cessazione | dmy }}{% endif %}</td>
+  </tr>
+</table>
+{% include "_prospetto.html" %}
+{% if slip.contract.cessazione and slip.contract.cessazione.year == slip.year and slip.contract.cessazione.month == slip.month %}
+<p class="tfr"><strong>Trattamento di fine rapporto da liquidare: {{ tfr.fondo | eur }}</strong></p>
+{% endif %}
+<table class="signatures">
+  <tr><td>Firma del datore di lavoro</td><td>Firma del lavoratore per ricevuta</td></tr>
+</table>
+</body>
+</html>

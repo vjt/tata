@@ -1,0 +1,15 @@
+@page { size: A4; margin: 18mm 16mm; }
+body { font: 10pt/1.4 "DejaVu Sans", sans-serif; color: #111; }
+h1 { font-size: 14pt; margin: 0 0 6mm; }
+table { width: 100%; border-collapse: collapse; margin: 0 0 5mm; }
+th, td { text-align: left; padding: 1.2mm 1mm; border-bottom: .3pt solid #bbb; vertical-align: top; }
+td:last-child { text-align: right; white-space: nowrap; }
+.parties td { width: 50%; border: 0; text-align: left; white-space: normal; }
+.paga th, .ratei th { font-weight: normal; }
+.paga td, .ratei td { text-align: right; }
+.total td, .total th { font-weight: bold; }
+.net td { font-size: 12pt; }
+.hint { color: #555; font-size: 8pt; }
+.tfr { margin: 4mm 0; }
+.signatures { margin-top: 18mm; }
+.signatures td { width: 50%; height: 24mm; border: .5pt solid #333; text-align: left; vertical-align: top; font-size: 8pt; }

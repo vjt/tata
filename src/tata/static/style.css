@@ -1,0 +1,65 @@
+:root {
+  --ink: #1d1d1f; --muted: #6b6b70; --line: #e3e1dc; --bg: #f7f6f3; --card: #fff;
+  --accent: #2f6f5e; --warn: #a3471b;
+  --ferie: #2f6f5e; --malattia: #a3471b; --permesso: #5a4fa3; --assenza: #6b6b70; --extra: #b07d12;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
+header { display: flex; justify-content: space-between; align-items: center; padding: .75rem 1rem; background: var(--card); border-bottom: 1px solid var(--line); }
+header .brand { font-weight: 700; color: var(--accent); text-decoration: none; font-size: 1.2rem; }
+header nav a { margin-left: 1rem; color: var(--ink); text-decoration: none; }
+main { max-width: 56rem; margin: 0 auto; padding: 1rem; }
+h1 { font-size: 1.5rem; margin: .5rem 0 1rem; text-transform: capitalize; }
+h2 { font-size: 1.1rem; margin: 0 0 .75rem; }
+a { color: var(--accent); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; margin: 1rem 0; }
+.error { border-color: var(--warn); }
+.warn { color: var(--warn); }
+.hint { color: var(--muted); font-size: .875rem; }
+.monthnav { display: flex; align-items: center; justify-content: space-between; }
+.monthnav a { font-size: 1.75rem; text-decoration: none; padding: 0 .75rem; }
+.scroll { overflow-x: auto; }
+
+.calendar { width: 100%; border-collapse: collapse; table-layout: fixed; background: var(--card); }
+.calendar th { font-size: .75rem; color: var(--muted); font-weight: 500; padding: .25rem; }
+.calendar td { border: 1px solid var(--line); height: 4.25rem; vertical-align: top; padding: 0; }
+.calendar td a { display: block; height: 100%; padding: .25rem; color: inherit; text-decoration: none; }
+.calendar td.out { background: transparent; border-color: transparent; }
+.calendar td.holiday .n { color: var(--warn); }
+.calendar .n { font-weight: 600; font-size: .9rem; }
+.calendar .h { display: block; font-size: .75rem; color: var(--muted); }
+.badge { display: block; font-size: .65rem; color: #fff; border-radius: .25rem; padding: 0 .25rem; margin-top: .15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge.ferie { background: var(--ferie); } .badge.malattia { background: var(--malattia); }
+.badge.permesso { background: var(--permesso); } .badge.assenza { background: var(--assenza); }
+.badge.extra { background: var(--extra); }
+
+.form label { display: block; margin: .5rem 0; font-size: .9rem; }
+.form input, .form select { display: block; width: 100%; padding: .5rem; font: inherit; border: 1px solid var(--line); border-radius: .35rem; background: #fff; }
+.form label.check { display: flex; gap: .5rem; align-items: center; }
+.form label.check input { width: auto; }
+.form fieldset { border: 0; padding: 0; margin: 0 0 1rem; }
+.form legend { font-weight: 600; margin-bottom: .25rem; }
+.row { display: flex; gap: .75rem; flex-wrap: wrap; } .row label { flex: 1 1 10rem; }
+button, .button { display: inline-block; font: inherit; padding: .5rem 1rem; border: 0; border-radius: .35rem; background: var(--accent); color: #fff; text-decoration: none; cursor: pointer; }
+button.link { background: none; color: var(--warn); padding: 0; }
+form.inline { display: inline-flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: 0; }
+form.inline input { padding: .25rem; font: inherit; }
+.actions { display: flex; gap: .75rem; flex-wrap: wrap; align-items: center; }
+.actions form { margin: 0; }
+.events { list-style: none; padding: 0; margin: 0; }
+.events li { display: flex; justify-content: space-between; gap: 1rem; padding: .35rem 0; border-bottom: 1px solid var(--line); }
+.events form { margin: 0; }
+
+table.lines, table.paga, table.ratei { width: 100%; border-collapse: collapse; margin: .5rem 0 1rem; font-size: .9rem; }
+.lines th, .lines td, .paga th, .paga td, .ratei th, .ratei td { text-align: left; padding: .35rem .25rem; border-bottom: 1px solid var(--line); }
+.lines td:last-child, .paga td, .ratei td { text-align: right; white-space: nowrap; }
+.paga th, .ratei th { font-weight: 400; }
+.total td, .total th { font-weight: 700; }
+.net td { font-size: 1.1rem; color: var(--accent); }
+
+@media (max-width: 30rem) {
+  main { padding: .5rem; }
+  .calendar td { height: 3.5rem; }
+  .badge { font-size: .55rem; }
+}

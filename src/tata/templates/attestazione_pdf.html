@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="it">
+<head><meta charset="utf-8"><title>Attestazione retribuzioni {{ att.year }}</title><style>{{ css | safe }}</style></head>
+<body>
+<h1>Dichiarazione delle retribuzioni corrisposte · anno {{ att.year }}</h1>
+<p>Il datore di lavoro domestico <strong>{{ att.contract.datore_nome }}</strong> (C.F. {{ att.contract.datore_cf }})
+dichiara di aver corrisposto nell'anno {{ att.year }} a
+<strong>{{ att.contract.lavoratore_nome }}</strong> (C.F. {{ att.contract.lavoratore_cf }}) le seguenti somme
+(CCNL lavoro domestico, art. 34 c.6). Il datore di lavoro domestico non è sostituto d'imposta: non
+sono state operate ritenute IRPEF.</p>
+<table class="lines">
+  <thead><tr><th>Mese</th><th>Lordo</th><th>Contributi INPS lavoratore</th><th>Cassa Colf lavoratore</th><th>Netto</th></tr></thead>
+  <tbody>
+  {% for s in att.mesi %}
+    <tr><td>{{ mesi[s.month] }}</td><td>{{ s.lordo | eur }}</td><td>{{ s.trattenuta_inps | eur }}</td><td>{{ s.trattenuta_cassa_colf | eur }}</td><td>{{ s.netto | eur }}</td></tr>
+  {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr class="total"><td>Totale</td><td>{{ att.lordo | eur }}</td><td>{{ att.trattenute_inps | eur }}</td><td>{{ att.trattenute_cassa_colf | eur }}</td><td>{{ att.netto | eur }}</td></tr>
+  </tfoot>
+</table>
+<table class="signatures">
+  <tr><td>Firma del datore di lavoro</td><td>Firma del lavoratore per ricevuta</td></tr>
+</table>
+</body>
+</html>

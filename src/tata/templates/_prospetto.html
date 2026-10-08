@@ -1,0 +1,35 @@
+{# The payslip body. Shared by the month page and the PDF: one rendering of one Payslip. #}
+<table class="paga">
+  <tr><th>Paga minima livello {{ slip.contract.livello }}</th><td>{{ slip.paga.minimo | num }}</td></tr>
+  {% if slip.paga.tab_h %}<tr><th>Indennità tab. H</th><td>{{ slip.paga.tab_h | num }}</td></tr>{% endif %}
+  <tr><th>Superminimo</th><td>{{ slip.paga.superminimo | num }}</td></tr>
+  {% if slip.paga.scatti_n %}<tr><th>Scatti di anzianità ({{ slip.paga.scatti_n }})</th><td>{{ slip.paga.scatti | num }}</td></tr>{% endif %}
+  <tr class="total"><th>Paga oraria</th><td>{{ slip.paga.oraria | num }} €/h</td></tr>
+</table>
+
+<table class="lines">
+  <thead><tr><th>Voce</th><th>Quantità</th><th>Tariffa</th><th>Importo</th></tr></thead>
+  <tbody>
+  {% for li in slip.lines %}
+    <tr><td>{{ li.voce }}</td><td>{{ li.quantita | num }} {{ li.unita }}</td><td>{{ li.tariffa | num }}</td><td>{{ li.importo | eur }}</td></tr>
+  {% else %}
+    <tr><td colspan="4">Nessuna retribuzione nel mese.</td></tr>
+  {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr class="total"><td colspan="3">Retribuzione lorda</td><td>{{ slip.lordo | eur }}</td></tr>
+    <tr><td colspan="3">Contributi INPS a carico lavoratore ({{ slip.ore_retribuite | num }} h × {{ slip.contributo.lavoratore | num }})</td><td>− {{ slip.trattenuta_inps | eur }}</td></tr>
+    <tr><td colspan="3">Cassa Colf a carico lavoratore ({{ slip.ore_retribuite | num }} h × {{ slip.cassa_colf.lavoratore | num }})</td><td>− {{ slip.trattenuta_cassa_colf | eur }}</td></tr>
+    <tr class="total net"><td colspan="3">Netto</td><td>{{ slip.netto | eur }}</td></tr>
+  </tfoot>
+</table>
+
+<table class="ratei">
+  <tr><th>Tredicesima maturata nell'anno</th><td>{{ slip.tredicesima_maturata | eur }}</td></tr>
+  <tr><th>Ferie maturate / godute / residue (gg)</th><td>{{ slip.ferie_maturate | num }} / {{ slip.ferie_godute | num }} / {{ slip.ferie_residue | num }}</td></tr>
+  <tr><th>Permessi retribuiti spettanti / goduti nell'anno</th><td>{{ slip.permessi_spettanti | ore }} / {{ slip.permessi_goduti | ore }}</td></tr>
+  <tr><th>Quota TFR del mese</th><td>{{ slip.tfr_quota | eur }}</td></tr>
+  <tr><th>TFR accantonato</th><td>{{ tfr.fondo | eur }}{% if tfr.rivalutazione_mancante %} (rivalutazione ISTAT non ancora disponibile){% endif %}</td></tr>
+  <tr><th>Retribuzione oraria effettiva (fascia INPS)</th><td>{{ slip.oraria_effettiva | num }} €/h → {{ slip.contributo.totale | num }} €/h</td></tr>
+</table>
+<p class="hint">Il datore di lavoro domestico non è sostituto d'imposta: nessuna ritenuta IRPEF.</p>

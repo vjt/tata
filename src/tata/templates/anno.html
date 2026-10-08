@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{{ year }} · tata{% endblock %}
+{% block content %}
+<div class="monthnav">
+  <a href="/anno/{{ year - 1 }}">‹</a>
+  <h1>{{ year }}</h1>
+  <a href="/anno/{{ year + 1 }}">›</a>
+</div>
+
+<section class="card">
+  <h2>Contributi INPS e Cassa Colf</h2>
+  <div class="scroll">
+  <table class="lines">
+    <thead><tr><th>Trimestre</th><th>Ore</th><th>INPS</th><th>di cui datore</th><th>Cassa Colf</th><th>Bollettino</th><th>Scadenza</th><th>Pagato</th></tr></thead>
+    <tbody>
+    {% for q in quarters %}
+      {% set p = paid.get((q.year, q.quarter)) %}
+      <tr>
+        <td>{{ q.quarter }}°</td>
+        <td>{{ q.ore | num }}</td>
+        <td>{{ q.inps_totale | eur }}</td>
+        <td>{{ q.inps_datore | eur }}</td>
+        <td>{{ q.cassa_totale | eur }}</td>
+        <td><strong>{{ q.totale | eur }}</strong></td>
+        <td>{{ q.scadenza | dmy }}</td>
+        <td>
+          <form method="post" action="/anno/{{ year }}/versamenti" class="inline">
+            <input type="hidden" name="trimestre" value="{{ q.quarter }}">
+            <input type="date" name="pagato_il" required value="{{ p.paid_on.isoformat() if p }}">
+            <button>{{ "aggiorna" if p else "registra" }}</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8">Nessun mese di lavoro in quest'anno.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="hint">Gli importi registrati come pagati alimentano la deduzione (principio di cassa).</p>
+</section>
+
+<section class="card">
+  <h2>Retribuzioni</h2>
+  <div class="scroll">
+  <table class="lines">
+    <thead><tr><th>Mese</th><th>Ore retribuite</th><th>Lordo</th><th>Trattenute</th><th>Netto</th></tr></thead>
+    <tbody>
+    {% for s in slips %}
+      <tr>
+        <td><a href="/mese/{{ s.year }}/{{ s.month }}">{{ mesi[s.month] }}</a></td>
+        <td>{{ s.ore_retribuite | num }}</td>
+        <td>{{ s.lordo | eur }}</td>
+        <td>{{ (s.trattenuta_inps + s.trattenuta_cassa_colf) | eur }}</td>
+        <td>{{ s.netto | eur }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>TFR</h2>
+  <table class="lines">
+    <thead><tr><th>Anno</th><th>Imponibile</th><th>Quota</th><th>Rivalutazione</th><th>Anticipi</th><th>Fondo</th></tr></thead>
+    <tbody>
+    {% for t in tfr.anni %}
+      <tr><td>{{ t.year }}</td><td>{{ t.imponibile | eur }}</td><td>{{ t.quota | eur }}</td><td>{{ t.rivalutazione | eur }}</td><td>{{ t.anticipi | eur }}</td><td>{{ t.fondo | eur }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if tfr.rivalutazione_mancante %}<p class="warn">Coefficiente di rivalutazione ISTAT non ancora inserito in <code>rates/</code>: fondo senza rivalutazione.</p>{% endif %}
+  <form method="post" action="/anno/{{ year }}/anticipi" class="inline">
+    <label>Anticipo TFR del <input type="date" name="giorno" required></label>
+    <label>importo <input name="importo" required inputmode="decimal" size="8"></label>
+    <button>registra</button>
+  </form>
+  {% for a in advances %}<p>Anticipo del {{ a.day | dmy }}: {{ a.amount | eur }}</p>{% endfor %}
+</section>
+
+<section class="card">
+  <h2>Fine anno</h2>
+  <p class="actions">
+    <a class="button" href="/anno/{{ year }}/attestazione.pdf">Attestazione retribuzioni (730 del lavoratore)</a>
+    <a class="button" href="/anno/{{ year }}/deduzioni.yaml">Deduzioni datore (YAML)</a>
+  </p>
+</section>
+{% endblock %}

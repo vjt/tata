@@ -113,12 +113,15 @@ class Store:
         )
         return draft.model_copy(update={"id": new_id})
 
-    def delete_event(self, event_id: int) -> None:
+    def delete_event(self, event_id: int) -> date:
+        """Deletes the event and returns its day. Raises KeyError if it does not exist."""
         rows = self._read("SELECT day FROM event WHERE id = ?", (event_id,))
         if not rows:
             raise KeyError(event_id)
-        self._refuse_if_final(date.fromisoformat(str(rows[0][0])))
+        day = date.fromisoformat(str(rows[0][0]))
+        self._refuse_if_final(day)
         self._write("DELETE FROM event WHERE id = ?", (event_id,))
+        return day
 
     # ---- finalized payslips
 

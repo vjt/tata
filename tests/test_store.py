@@ -27,7 +27,7 @@ def test_events_round_trip_and_delete(tmp_path: Path) -> None:
     extra = s.add_event(date(2026, 10, 9), EventKind.EXTRA, span("18:00-24:00"), "cena")
     ferie = s.add_event(date(2026, 10, 10), EventKind.FERIE, None, "")
     assert s.events() == [extra, ferie]
-    s.delete_event(extra.id)
+    assert s.delete_event(extra.id) == date(2026, 10, 9)
     assert s.events() == [ferie]
 
 

@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ mese }} {{ year }} · tata{% endblock %}
+{% block content %}
+<div class="monthnav">
+  <a href="{{ prev }}">‹</a>
+  <h1>{{ mese }} {{ year }}</h1>
+  <a href="{{ next }}">›</a>
+</div>
+
+<table class="calendar">
+  <thead><tr>{% for g in giorni %}<th>{{ g }}</th>{% endfor %}</tr></thead>
+  <tbody>
+  {% for week in weeks %}
+    <tr>
+    {% for day in week %}
+      {% if day.month != month %}
+        <td class="out"></td>
+      {% else %}
+        {% set w = work[day] %}
+        {% set minutes = w.buckets.values() | sum %}
+        <td class="{{ 'holiday' if day in holidays or day.weekday() == 6 }}">
+          <a href="?giorno={{ day.isoformat() }}#evento">
+            <span class="n">{{ day.day }}</span>
+            {% if minutes %}<span class="h">{{ minutes | ore }}</span>{% endif %}
+            {% for e in events if e.day == day %}<span class="badge {{ e.kind }}">{{ e.kind }}</span>{% endfor %}
+          </a>
+        </td>
+      {% endif %}
+    {% endfor %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if not final %}
+<form id="evento" method="post" action="/eventi" class="card form">
+  <h2>Registra un'eccezione</h2>
+  <label>Tipo
+    <select name="kind">{% for k in kinds %}<option value="{{ k }}">{{ k }}</option>{% endfor %}</select>
+  </label>
+  <div class="row">
+    <label>Dal <input type="date" name="dal" required value="{{ selected }}"></label>
+    <label>Al <input type="date" name="al"></label>
+  </div>
+  <div class="row">
+    <label>Dalle <input type="time" name="inizio"></label>
+    <label>Alle <input name="fine" placeholder="hh:mm (24:00 per mezzanotte)" pattern="\d{1,2}:\d{2}"></label>
+  </div>
+  <p class="hint">Ferie e malattia: giornate intere (anche un intervallo di date). Permessi e assenze:
+    giornata intera o un orario. Extra: sempre un orario, un giorno alla volta.</p>
+  <label>Nota <input name="note"></label>
+  <button>Aggiungi</button>
+</form>
+{% endif %}
+
+{% if events %}
+<section class="card">
+  <h2>Eccezioni del mese</h2>
+  <ul class="events">
+  {% for e in events %}
+    <li>
+      <span>{{ e.day | dmy }} · {{ e.kind }}{% if e.span %} {{ e.span }}{% endif %}{% if e.note %} · {{ e.note }}{% endif %}</span>
+      {% if not final %}
+      <form method="post" action="/eventi/{{ e.id }}/elimina"><button class="link">elimina</button></form>
+      {% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Prospetto paga {% if final %}<small>(finalizzato)</small>{% endif %}</h2>
+  {% include "_prospetto.html" %}
+  <p class="actions">
+    <a class="button" href="/mese/{{ year }}/{{ month }}/prospetto.pdf">PDF</a>
+    {% if not final %}
+    <form method="post" action="/mese/{{ year }}/{{ month }}/finalizza"><button>Finalizza il mese</button></form>
+    {% endif %}
+  </p>
+</section>
+{% endblock %}
