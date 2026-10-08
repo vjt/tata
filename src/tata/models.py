@@ -125,6 +125,26 @@ class Contract(Frozen):
         return self.assunzione <= day and (self.cessazione is None or day <= self.cessazione)
 
 
+class Payment(Frozen):
+    """An INPS bollettino actually paid: the amounts as computed on the day it was recorded."""
+
+    year: int
+    quarter: int
+    paid_on: date
+    inps_datore: Decimal
+    inps_lavoratore: Decimal
+    cassa_colf: Decimal
+    totale: Decimal
+
+
+class TfrAdvance(Frozen):
+    """Anticipo TFR (CCNL art. 41 c.2)."""
+
+    id: int
+    day: date
+    amount: Decimal
+
+
 class Event(Frozen):
     id: int
     day: date
