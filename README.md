@@ -1,81 +1,87 @@
 # tata
 
-Hours and payslips for **one** Italian domestic worker (*lavoro domestico*), self-hosted.
+Ore e buste paga di **una** lavoratrice o lavoratore domestico, in casa propria (self-hosted).
 
-Built for a household employing a baby sitter by the hour under the CCNL lavoro domestico
-(28 October 2025). You record only the exceptions to the weekly schedule; tata produces:
+Pensata per una famiglia che assume una baby sitter a ore con il CCNL lavoro domestico del
+28 ottobre 2025. Si registrano solo le eccezioni all'orario settimanale; tata produce:
 
-- the monthly **prospetto paga** (PDF, two signature boxes), CCNL art. 34;
-- quarterly **INPS + Cassa Colf** contributions with due dates (10 Apr / 10 Jul / 10 Oct / 10 Jan);
-- **tredicesima**, **ferie** and **permessi** balances, **TFR** fund with ISTAT revaluation and
-  advances, final settlement on termination;
-- the yearly **attestazione delle retribuzioni** for the worker's 730 (CCNL art. 34 c.6);
-- a **YAML of the employer's deductible contributions** (rigo E23 / RP23, cash basis, capped).
+- il **prospetto paga** mensile (PDF con due riquadri per le firme), CCNL art. 34;
+- i **contributi INPS e Cassa Colf** di ogni trimestre, con le scadenze (10 aprile, 10 luglio,
+  10 ottobre, 10 gennaio);
+- **tredicesima**, saldi di **ferie** e **permessi**, fondo **TFR** con rivalutazione ISTAT e
+  anticipi, liquidazione a fine rapporto;
+- l'**attestazione annuale delle retribuzioni** per il 730 del lavoratore (CCNL art. 34 c.6);
+- un **YAML dei contributi deducibili** del datore (rigo E23 / RP23, principio di cassa, con
+  il tetto di legge).
 
-The domestic employer is not a *sostituto d'imposta*: no IRPEF withholding, no CU, no 770.
+Il datore di lavoro domestico non è sostituto d'imposta: niente ritenute IRPEF, niente CU,
+niente 770.
 
-## Rules implemented
+## Regole applicate
 
-| Topic | Rule | Source |
+| Voce | Regola | Fonte |
 |---|---|---|
-| Night work 22–6 | +20% | CCNL art. 14 c.6 |
-| Overtime (beyond 8 h/day, 40 h/week) | +25% day, +50% night; 40–44 h/week day +10% | art. 15 |
-| Sunday / festività worked | +60% | art. 13 c.4, art. 16 c.3 |
-| Festività | every festività in the month paid 1/6 of weekly hours, worked day or not | art. 16 c.2 |
-| Ferie | 26 working days/year (Mon–Sat), each paid 1/6 of weekly hours | art. 17 |
-| Permessi retribuiti | 12 h/year at ≥ 30 h/week, pro-rata below and by months of service | art. 19 |
-| Malattia | 8/10/15 paid days per 365 by anzianità; 50% to the 3rd consecutive day, then 100%; 1/30 of monthly pay per calendar day | art. 27, chiarimento 2 |
-| Scatti | +4% of the minimum per biennio, from the following month, max 7 | art. 37 |
-| Tredicesima | one month's pay (weekly hours × 52/12), 1/12 per month with ≥ 15 days of service | art. 39, chiarimento 4 |
-| TFR | yearly pay / 13,5 (full pay counted on sick days), revalued 1,5% + 75% ISTAT | art. 41, art. 2120 c.c. |
-| INPS band | paga oraria × 13/12 → hourly contribution; flat rate above 24 h/week | INPS Circ. 9/2026 |
-| Cassa Colf | 0,06 €/h, 0,02 worker | art. 54 |
-| Deduction | employer INPS share paid in the year, max 1.549,37 € | art. 10 c.2 TUIR |
+| Lavoro notturno 22–6 | +20% | CCNL art. 14 c.6 |
+| Straordinario (oltre 8 h/giorno o 40 h/settimana) | +25% di giorno, +50% di notte; tra 40 e 44 h settimanali diurne +10% | art. 15 |
+| Domenica o festività lavorate | +60% | art. 13 c.4, art. 16 c.3 |
+| Festività | ogni festività del mese pagata 1/6 dell'orario settimanale, lavorativa o no | art. 16 c.2 |
+| Ferie | 26 giorni lavorativi l'anno (lunedì–sabato), ciascuno pagato 1/6 dell'orario settimanale | art. 17 |
+| Permessi retribuiti | 12 h l'anno da 30 h settimanali in su, in proporzione sotto e per mesi di servizio | art. 19 |
+| Malattia | 8/10/15 giorni pagati su 365 in base all'anzianità; 50% fino al 3° giorno consecutivo, poi 100%; 1/30 della paga mensile per giorno di calendario | art. 27, chiarimento 2 |
+| Scatti di anzianità | +4% del minimo ogni biennio, dal mese successivo, massimo 7 | art. 37 |
+| Tredicesima | una mensilità (orario settimanale × 52/12), 1/12 per ogni mese con almeno 15 giorni di servizio | art. 39, chiarimento 4 |
+| TFR | retribuzione annua / 13,5 (in malattia conta la paga piena), rivalutato 1,5% + 75% ISTAT | art. 41, art. 2120 c.c. |
+| Fascia INPS | paga oraria × 13/12 → contributo orario; importo fisso oltre 24 h settimanali | INPS circ. 9/2026 |
+| Cassa Colf | 0,06 €/h, di cui 0,02 a carico del lavoratore | art. 54 |
+| Deduzione | quota INPS del datore versata nell'anno, massimo 1.549,37 € | art. 10 c.2 TUIR |
 
-Overtime is assigned to the chronologically latest minutes of the day/week. Every number that
-changes in January lives in [`rates/<year>.yaml`](rates/2026.yaml) with its source.
+Lo straordinario cade sui minuti più tardi della giornata o della settimana. Tutti i valori che
+cambiano a gennaio stanno in [`rates/<anno>.yaml`](rates/2026.yaml), ciascuno con la sua fonte.
 
-**Not supported** (raises or is out of scope): fixed-term contracts (contributo addizionale),
-live-in workers (vitto/alloggio), more than one worker, hires before the first rates file (2026).
-The contract has no history: a raise or a new schedule recomputes every month not yet
-finalized, so finalize each month (in order, enforced) once it is paid.
+**Non gestito** (errore esplicito o fuori ambito): contratti a tempo determinato (contributo
+addizionale), lavoratori conviventi (vitto e alloggio), più di un lavoratore, assunzioni
+precedenti al primo file di tariffe (2026). Il contratto non ha storico: un aumento o un nuovo
+orario ricalcola tutti i mesi non ancora finalizzati, quindi conviene finalizzare ogni mese (in
+ordine, l'app lo impone) appena pagato.
 
-**To double-check** against official texts: INPS band 2 (1,92 €/h) and the >24 h rate come from a
-secondary source; INPS hours for sick days are taken as the scheduled hours of those days.
+**Da verificare** sui testi ufficiali: la fascia INPS 2 (1,92 €/h) e l'importo oltre le 24 h
+vengono da una fonte secondaria; le ore INPS dei giorni di malattia sono le ore previste
+dall'orario in quei giorni.
 
-## Privacy: code public, data never
+## Privacy: codice pubblico, dati mai
 
-Names, codici fiscali, hours and payslips live in `TATA_DATA_DIR` (a volume outside the
-repository). `tests/test_repo_hygiene.py` fails if a database, PDF or `.env` is tracked or if any
-tracked file contains a codice fiscale other than the invented test ones.
+Nomi, codici fiscali, ore e buste paga stanno in `TATA_DATA_DIR`, un volume fuori dal
+repository. `tests/test_repo_hygiene.py` fallisce se viene tracciato un database, un PDF o un
+`.env`, o se un file tracciato contiene un codice fiscale diverso da quelli inventati dei test.
 
-## Development
+## Sviluppo
 
-The container is the only toolchain; nothing is installed on the host.
+Il container è l'unico ambiente: sull'host non si installa niente.
 
 ```bash
-git config core.hooksPath .githooks   # pre-commit runs scripts/check.sh
+git config core.hooksPath .githooks   # il pre-commit lancia scripts/check.sh
 scripts/test.sh                       # pytest
 scripts/lint.sh                       # ruff + pyright strict
 scripts/format.sh                     # ruff --fix + format
 ```
 
-Engineering rules (no default arguments, Decimal money, int minutes, Pydantic only, pure
-calculators) are in [CLAUDE.md](CLAUDE.md) and enforced by `tests/test_architecture.py`.
+Le regole di progetto (niente argomenti di default, soldi in Decimal, tempo in minuti interi,
+solo modelli Pydantic, calcoli senza I/O) sono in [CLAUDE.md](CLAUDE.md) e le fa rispettare
+`tests/test_architecture.py`.
 
-## Deploy
+## Installazione
 
-One container with its own LAN address, terminating TLS itself on port 443.
+Un container con un proprio indirizzo sulla LAN, che termina il TLS da sé sulla porta 443.
 
 ```bash
-cp .env.example .env     # data dir, certs dir, network, IP, password
-mkdir -p /srv/tata/data /srv/tata/certs   # owned by TATA_UID:TATA_GID
+cp .env.example .env     # cartella dati, cartella certificati, rete, IP, password
+mkdir -p /srv/tata/data /srv/tata/certs   # di proprietà di TATA_UID:TATA_GID
 docker compose up -d --build
 ```
 
-- **TLS**: `server.crt` / `server.key` in `${TATA_CERTS}`. uvicorn reads them at start, so
-  whatever renews them must restart the container. With a step-ca cert pusher that deploys
-  to Docker containers by copying files and signalling, the target is:
+- **TLS**: `server.crt` e `server.key` in `${TATA_CERTS}`. uvicorn li legge all'avvio, quindi
+  chi li rinnova deve riavviare il container. Con un cert pusher per step-ca che distribuisce ai
+  container Docker copiando i file e mandando un segnale, il target è:
 
   ```ini
   [docker:tata]
@@ -86,18 +92,19 @@ docker compose up -d --build
   signal = RESTART
   ```
 
-  with `${TATA_CERTS}` bind-mounted at `/root/tata` in the pusher.
-- **DNS**: an A record for the hostname pointing at `${TATA_IP}`.
-- **Auth**: HTTP Basic, any username, the password from `TATA_PASSWORD`.
+  con `${TATA_CERTS}` montato su `/root/tata` nel pusher.
+- **DNS**: un record A per il nome host che punta a `${TATA_IP}`.
+- **Accesso**: HTTP Basic, nome utente qualsiasi, password da `TATA_PASSWORD`.
 
-## Every January
+## Ogni gennaio
 
-1. Copy `rates/<last year>.yaml` to `rates/<year>.yaml`.
-2. Update the CCNL minimums (verbale della Commissione nazionale) and the INPS table (circolare
-   of late January / early February), re-verify every other value, update the source comments.
-3. During the year, add the ISTAT TFR revaluation coefficients to `tfr_coefficienti` (month →
-   cumulative %) as they are published; until then the TFR page flags the missing revaluation.
+1. Copiare `rates/<anno precedente>.yaml` in `rates/<anno>.yaml`.
+2. Aggiornare i minimi CCNL (verbale della Commissione nazionale) e la tabella INPS (circolare
+   di fine gennaio o inizio febbraio), ricontrollare ogni altro valore e le fonti nei commenti.
+3. Durante l'anno, aggiungere in `tfr_coefficienti` i coefficienti ISTAT di rivalutazione del
+   TFR (mese → % cumulata) man mano che escono; fino ad allora la pagina del TFR segnala la
+   rivalutazione mancante.
 
-## License
+## Licenza
 
 MIT
