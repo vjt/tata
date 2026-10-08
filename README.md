@@ -47,8 +47,9 @@ orario ricalcola tutti i mesi non ancora finalizzati, quindi conviene finalizzar
 ordine, l'app lo impone) appena pagato.
 
 **Da verificare** sui testi ufficiali: la fascia INPS 2 (1,92 €/h) e l'importo oltre le 24 h
-vengono da una fonte secondaria; le ore INPS dei giorni di malattia sono le ore previste
-dall'orario in quei giorni.
+non compaiono nella notizia INPS ma in due fonti secondarie concordi, e tornano col resto della
+tabella (contributo ≈ 20% del convenzionale in ogni fascia); le ore INPS dei giorni di malattia
+sono le ore previste dall'orario in quei giorni.
 
 ## Privacy: codice pubblico, dati mai
 

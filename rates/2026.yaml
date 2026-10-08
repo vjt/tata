@@ -46,7 +46,9 @@ inps:
   # INPS Circolare n. 9 del 3/2/2026, rapporti a tempo indeterminato, importi con CUAF.
   # https://www.inps.it/it/it/inps-comunica/notizie/dettaglio-news-page.news.2026.02.lavoratori-domestici-i-contributi-dovuti-per-il-2026.html
   # Full table via https://www.fiscoetasse.com/new-rassegna-stampa/3495-contributi-colf-e-badanti-2026-importi-aliquote-e-istruzioni-inps.html
-  # Band 1 and 3 confirmed on the INPS page; band 2 and the >24h row only from the secondary source.
+  # and https://www.leggioggi.it/contributi-colf-e-badanti-importi-inps-2026/ (same figures).
+  # Band 1 and 3 confirmed on the INPS page; band 2 and the >24h row only from the two secondary
+  # sources. Cross-check: totale / convenzionale ~ 20% in every row (8.52, 9.61, 11.70, 6.20).
   # Fascia = retribuzione oraria effettiva (paga oraria + 1/12 tredicesima), upper bound inclusive.
   fasce:
     - fino_a: "9.61"
