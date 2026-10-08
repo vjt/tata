@@ -7,6 +7,7 @@ services:
     container_name: tata
     restart: unless-stopped
     hostname: tata
+    user: "${TATA_UID}:${TATA_GID}"   # host owner of the data and certs dirs: no chown needed
     environment:
       - TATA_PASSWORD
     volumes:
