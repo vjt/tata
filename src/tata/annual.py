@@ -1,6 +1,7 @@
 """Yearly views: TFR fund, attestazione for the worker's 730, employer's deduction."""
 
 import calendar
+from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
 
@@ -9,6 +10,9 @@ import yaml
 from tata.models import Contract, Event, Frozen, Payment, TfrAdvance, euro
 from tata.payslip import Payslip, compute_payslip
 from tata.rates import Rates, RatesBook
+
+# (year, month) -> payslip. Production returns the finalized snapshot when there is one.
+PayslipSource = Callable[[int, int], Payslip]
 
 
 def employed_months(contract: Contract, year: int, upto_month: int) -> list[int]:
@@ -22,14 +26,19 @@ def employed_months(contract: Contract, year: int, upto_month: int) -> list[int]
     return months
 
 
+def computed_source(contract: Contract, events: list[Event], book: RatesBook) -> PayslipSource:
+    """Payslips computed from scratch, no snapshots."""
+
+    def source(year: int, month: int) -> Payslip:
+        return compute_payslip(contract, events, year, month, book.get(year))
+
+    return source
+
+
 def year_payslips(
-    contract: Contract, events: list[Event], year: int, upto_month: int, book: RatesBook
+    contract: Contract, year: int, upto_month: int, source: PayslipSource
 ) -> list[Payslip]:
-    rates = book.get(year)
-    return [
-        compute_payslip(contract, events, year, m, rates)
-        for m in employed_months(contract, year, upto_month)
-    ]
+    return [source(year, m) for m in employed_months(contract, year, upto_month)]
 
 
 # ---- TFR (CCNL art. 41, art. 2120 c.c.)
@@ -91,10 +100,10 @@ def tfr_fold(years: list[TfrInput]) -> Tfr:
 
 def tfr(
     contract: Contract,
-    events: list[Event],
     advances: list[TfrAdvance],
     year: int,
     month: int,
+    source: PayslipSource,
     book: RatesBook,
 ) -> Tfr:
     """TFR fund from hire to the end of year/month."""
@@ -102,9 +111,7 @@ def tfr(
     for y in range(contract.assunzione.year, year + 1):
         upto = 12 if y < year else month
         rates = book.get(y)
-        imponibile = sum(
-            (s.lordo for s in year_payslips(contract, events, y, upto, book)), Decimal(0)
-        )
+        imponibile = sum((s.lordo for s in year_payslips(contract, y, upto, source)), Decimal(0))
         coefficient_month = 12 if y < year else month - 1
         coefficiente = (
             Decimal(0) if coefficient_month == 0 else rates.tfr_coefficienti.get(coefficient_month)
@@ -138,10 +145,8 @@ class Attestazione(Frozen):
     netto: Decimal
 
 
-def attestazione(
-    contract: Contract, events: list[Event], year: int, book: RatesBook
-) -> Attestazione:
-    slips = year_payslips(contract, events, year, 12, book)
+def attestazione(contract: Contract, year: int, source: PayslipSource) -> Attestazione:
+    slips = year_payslips(contract, year, 12, source)
     return Attestazione(
         year=year,
         contract=contract,

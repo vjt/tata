@@ -3,7 +3,15 @@ from decimal import Decimal
 
 import yaml
 
-from tata.annual import TfrInput, attestazione, deduzione, deduzione_yaml, tfr, tfr_fold
+from tata.annual import (
+    TfrInput,
+    attestazione,
+    computed_source,
+    deduzione,
+    deduzione_yaml,
+    tfr,
+    tfr_fold,
+)
 from tata.models import Payment, TfrAdvance
 from tests.helpers import rates_2026, rates_book, standard_contract
 
@@ -62,7 +70,7 @@ def test_tfr_fold_flags_a_missing_coefficient_instead_of_inventing_one() -> None
 
 def test_tfr_first_year_needs_no_coefficient() -> None:
     worker = standard_contract(date(2026, 10, 12))
-    result = tfr(worker, [], [], 2026, 12, rates_book())
+    result = tfr(worker, [], 2026, 12, computed_source(worker, [], rates_book()), rates_book())
     # imponibile Oct 398,70 + Nov 580,33 + Dec 768,61 = 1747,64 ; / 13,5 = 129,455 -> 129,45
     assert result.anni[0].imponibile == Decimal("1747.64")
     assert result.fondo == Decimal("129.45")
@@ -71,12 +79,14 @@ def test_tfr_first_year_needs_no_coefficient() -> None:
 def test_tfr_advance_reduces_the_fund() -> None:
     worker = standard_contract(date(2026, 10, 12))
     advance = TfrAdvance(id=1, day=date(2026, 12, 20), amount=Decimal("29.45"))
-    assert tfr(worker, [], [advance], 2026, 12, rates_book()).fondo == Decimal("100.00")
+    assert tfr(
+        worker, [advance], 2026, 12, computed_source(worker, [], rates_book()), rates_book()
+    ).fondo == Decimal("100.00")
 
 
 def test_attestazione_sums_the_year() -> None:
     worker = standard_contract(date(2026, 10, 12))
-    att = attestazione(worker, [], 2026, rates_book())
+    att = attestazione(worker, 2026, computed_source(worker, [], rates_book()))
     assert [s.month for s in att.mesi] == [10, 11, 12]
     assert att.lordo == Decimal("1747.64")
     # 19,35 + 28,17 + 30,32 ; 0,90 + 1,31 + 1,41
