@@ -43,9 +43,11 @@ class EventKind(StrEnum):
     PERMESSO = "permesso"  # paid leave (art. 19), whole day or a time span
     ASSENZA = "assenza"  # unpaid absence, whole day or a time span
     EXTRA = "extra"  # hours worked beyond the schedule (time span required)
+    MORA = "mora"  # sent home by the employer: paid as scheduled (art. 1206 c.c.), span required
 
 
 WHOLE_DAY_ONLY = frozenset({EventKind.FERIE, EventKind.MALATTIA})
+SPAN_ONLY = frozenset({EventKind.EXTRA, EventKind.MORA})
 
 
 class Bucket(StrEnum):
@@ -156,6 +158,6 @@ class Event(Frozen):
     def _check(self) -> "Event":
         if self.kind in WHOLE_DAY_ONLY and self.span is not None:
             raise ValueError(f"{self.kind} vale per l'intera giornata")
-        if self.kind is EventKind.EXTRA and self.span is None:
-            raise ValueError("le ore extra richiedono un orario")
+        if self.kind in SPAN_ONLY and self.span is None:
+            raise ValueError(f"{self.kind} richiede un orario")
         return self

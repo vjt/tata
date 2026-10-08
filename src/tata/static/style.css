@@ -1,7 +1,7 @@
 :root {
   --ink: #1d1d1f; --muted: #6b6b70; --line: #e3e1dc; --bg: #f7f6f3; --card: #fff;
   --accent: #2f6f5e; --warn: #a3471b;
-  --ferie: #2f6f5e; --malattia: #a3471b; --permesso: #5a4fa3; --assenza: #6b6b70; --extra: #b07d12;
+  --ferie: #2f6f5e; --malattia: #a3471b; --permesso: #5a4fa3; --assenza: #6b6b70; --extra: #b07d12; --mora: #2a6f97;
   color-scheme: light;
 }
 * { box-sizing: border-box; }
@@ -33,6 +33,7 @@ a { color: var(--accent); }
 .badge.ferie { background: var(--ferie); } .badge.malattia { background: var(--malattia); }
 .badge.permesso { background: var(--permesso); } .badge.assenza { background: var(--assenza); }
 .badge.extra { background: var(--extra); }
+.badge.mora { background: var(--mora); }
 
 .form label { display: block; margin: .5rem 0; font-size: .9rem; }
 .form input, .form select { display: block; width: 100%; padding: .5rem; font: inherit; border: 1px solid var(--line); border-radius: .35rem; background: #fff; }

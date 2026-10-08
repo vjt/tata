@@ -5,7 +5,7 @@ from collections import Counter
 from datetime import date, timedelta
 
 from tata.festivita import festivita
-from tata.models import Bucket, Contract, Event, EventKind, Frozen
+from tata.models import SPAN_ONLY, Bucket, Contract, Event, EventKind, Frozen
 from tata.rates import Ccnl, Rates
 
 NIGHT_START = 22 * 60  # art. 14 c.6: night work is 22:00-6:00
@@ -61,12 +61,12 @@ def range_days(contract: Contract, kind: EventKind, first: date, last: date) -> 
 
     Ferie: Monday-Saturday excluding festività (art. 17, chiarimento). Malattia: every calendar
     day (art. 27 counts calendar days). Permesso/assenza: only days with scheduled hours.
-    Extra hours are a single day.
+    Extra hours and mora are a single day.
     """
     if last < first:
         raise ValueError("intervallo di date rovesciato")
-    if kind is EventKind.EXTRA and first != last:
-        raise ValueError("le ore extra si registrano un giorno alla volta")
+    if kind in SPAN_ONLY and first != last:
+        raise ValueError(f"{kind} si registra un giorno alla volta")
     if not (contract.employed_on(first) and contract.employed_on(last)):
         raise ValueError(f"{first} - {last} è fuori dal rapporto di lavoro")
     holidays: frozenset[date] = frozenset()
@@ -109,6 +109,9 @@ def _day_work(
             scheduled |= s.minutes()
 
     foreseen = len(scheduled)
+    for ev in events:
+        if ev.kind is EventKind.MORA and ev.span is not None and not ev.span.minutes() <= scheduled:
+            raise ValueError(f"mora fuori dall'orario del {day}")
     permesso = 0
     if whole:
         if EventKind.PERMESSO in whole:

@@ -180,3 +180,16 @@ def test_extra_hours_cannot_span_days() -> None:
 def test_range_outside_employment_is_rejected() -> None:
     with pytest.raises(ValueError, match="rapporto"):
         range_days(standard_contract(HIRED), EventKind.FERIE, date(2025, 12, 30), date(2026, 1, 2))
+
+
+def test_mora_requires_a_span() -> None:
+    with pytest.raises(ValueError, match="richiede un orario"):
+        event(date(2026, 10, 13), EventKind.MORA, None)
+
+
+def test_mora_outside_the_schedule_is_refused() -> None:
+    # Nothing is scheduled at 12:00 on a weekday of the STANDARD schedule.
+    worker = standard_contract(date(2026, 10, 12))
+    mora = event(date(2026, 10, 13), EventKind.MORA, "12:00-13:00")
+    with pytest.raises(ValueError, match="fuori dall'orario"):
+        month_work(worker, [mora], 2026, 10, rates_2026())

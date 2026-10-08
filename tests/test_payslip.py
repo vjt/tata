@@ -248,3 +248,14 @@ def test_permessi_beyond_the_yearly_allowance_are_flagged() -> None:
     assert not payslip(worker, leave, 2026, 10).permessi_eccedenti
     leave.append(event(date(2026, 10, 7), EventKind.PERMESSO, "08:00-08:45"))
     assert payslip(worker, leave, 2026, 10).permessi_eccedenti
+
+
+def test_mora_pays_exactly_as_the_schedule() -> None:
+    # Art. 1206 c.c.: the worker sent home keeps the pay. A MORA over the afternoon span of
+    # Tuesday 13/10 must leave the October payslip identical to the one with no events.
+    worker = standard_contract(date(2026, 10, 12))
+    mora = event(date(2026, 10, 13), EventKind.MORA, "15:45-18:00")
+    rates = rates_2026()
+    assert compute_payslip(worker, [mora], 2026, 10, rates) == compute_payslip(
+        worker, [], 2026, 10, rates
+    )
