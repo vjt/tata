@@ -50,7 +50,8 @@ Calc modules never touch the DB; the store never computes.
   assigned to the chronologically LATEST minutes.
 - **INPS fascia** from retribuzione oraria effettiva = paga oraria × 13/12 (13ma rateo; no vitto/
   alloggio for non conviventi). Contributions on ore retribuite (worked + festività + ferie +
-  permessi + malattia equivalents). Tempo determinato is NOT supported (no addizionale): raise.
+  permessi + scheduled hours of paid sick days). Out of scope by design: tempo determinato
+  (contributo addizionale), conviventi (vitto/alloggio), more than one worker.
 
 ## Engineering principles (inherited from grappa / gastone / decaf, owned here)
 
