@@ -56,6 +56,15 @@ class Inps(Frozen):
     oltre_24_ore: Contributo
     cassa_colf: Contributo
 
+    def contributo(self, oraria_effettiva: Decimal, weekly_minutes: int) -> Contributo:
+        """Hourly contribution: flat above 24 h/week, else the band of the effective hourly pay."""
+        if weekly_minutes > 24 * 60:
+            return self.oltre_24_ore
+        for fascia in self.fasce:
+            if fascia.fino_a is None or oraria_effettiva <= fascia.fino_a:
+                return Contributo(totale=fascia.totale, lavoratore=fascia.lavoratore)
+        raise ValueError("tabella INPS senza fascia aperta")
+
 
 class Fisco(Frozen):
     deduzione_max: Decimal
