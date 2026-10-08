@@ -86,9 +86,7 @@ docker compose up -d --build
   signal = RESTART
   ```
 
-  with `${TATA_CERTS}` bind-mounted at `/root/tata` in the pusher. Without a pusher,
-  `scripts/renew-cert.sh` renews with `step ca renew` (mTLS, no secret) and restarts the
-  container only when the cert changed; run it daily from cron.
+  with `${TATA_CERTS}` bind-mounted at `/root/tata` in the pusher.
 - **DNS**: an A record for the hostname pointing at `${TATA_IP}`.
 - **Auth**: HTTP Basic, any username, the password from `TATA_PASSWORD`.
 
