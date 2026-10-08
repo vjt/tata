@@ -9,6 +9,7 @@
 # Local working files
 /PLAN.md
 /STATUS
+/HANDOFF.md
 /WORKER_PROMPT.md
 /.claude/settings.local.json
 
