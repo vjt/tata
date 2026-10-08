@@ -1,0 +1,78 @@
+# Rates in force from 1 January 2026 to 31 December 2026.
+# Every value cites its source. Update every January: copy to <year>.yaml, re-verify each value.
+
+year: 2026
+
+ccnl:
+  # CCNL lavoro domestico 28/10/2025 (in force 1/11/2025 - 31/10/2028), "Tabella minimi retributivi
+  # decorrenza 1° gennaio 2026", Tabella C (non conviventi, valori orari).
+  # https://lavorodomestico.assindatcolf.it/wp-content/uploads/2026/04/CCNL.pdf
+  minimi_orari:
+    A: "6.51"
+    AS: "6.76"
+    B: "7.01"
+    BS: "7.45"
+    C: "7.86"
+    CS: "8.30"
+    D: "9.57"
+    DS: "9.97"
+  # Tabella H, indennità baby sitter (BS profilo b) until the child turns 6, art. 34 c.3.
+  # Absorbable by superminimo. Hourly value for non conviventi.
+  tab_h_orario: "0.84"
+  # Art. 14 c.6 (notturno ordinario 22-6), art. 15 c.3-4 (straordinario, 40-44h),
+  # art. 13 c.4 + art. 16 c.3 (domenica / festività lavorate).
+  maggiorazioni:
+    notturno: "0.20"
+    oltre_40: "0.10"
+    straordinario_diurno: "0.25"
+    straordinario_notturno: "0.50"
+    festivo: "0.60"
+  # Art. 14 c.1 lett. b: non conviventi max 8 h/day, 40 h/week; art. 15 c.4: 40-44 band.
+  max_minuti_giorno: 480
+  max_minuti_settimana: 2400
+  max_minuti_settimana_banda: 2640
+  ferie_giorni_anno: 26          # art. 17 c.1
+  permessi_ore_anno: 12          # art. 19 c.1, non conviventi >= 30 h/week; pro-rata below
+  permessi_ore_soglia: 30
+  malattia_giorni_pagati:        # art. 27 c.7, by anzianità
+    fino_6_mesi: 8
+    fino_2_anni: 10
+    oltre: 15
+  scatto: "0.04"                 # art. 37: +4% of the minimum per biennio
+  scatti_max: 7
+  tfr_divisore: "13.5"           # art. 41 c.1
+
+inps:
+  # INPS Circolare n. 9 del 3/2/2026, rapporti a tempo indeterminato, importi con CUAF.
+  # https://www.inps.it/it/it/inps-comunica/notizie/dettaglio-news-page.news.2026.02.lavoratori-domestici-i-contributi-dovuti-per-il-2026.html
+  # Full table via https://www.fiscoetasse.com/new-rassegna-stampa/3495-contributi-colf-e-badanti-2026-importi-aliquote-e-istruzioni-inps.html
+  # Band 1 and 3 confirmed on the INPS page; band 2 and the >24h row only from the secondary source.
+  # Fascia = retribuzione oraria effettiva (paga oraria + 1/12 tredicesima), upper bound inclusive.
+  fasce:
+    - fino_a: "9.61"
+      totale: "1.70"
+      lavoratore: "0.43"
+    - fino_a: "11.70"
+      totale: "1.92"
+      lavoratore: "0.48"
+    - fino_a: null
+      totale: "2.34"
+      lavoratore: "0.59"
+  # Weekly schedule above 24 hours: flat contribution whatever the pay.
+  oltre_24_ore:
+    totale: "1.24"
+    lavoratore: "0.31"
+  # CCNL art. 54 c.2: contributi di assistenza contrattuale (Cassa Colf), code F2 in the bollettino.
+  cassa_colf:
+    totale: "0.06"
+    lavoratore: "0.02"
+
+fisco:
+  # Art. 10 c.2 TUIR: employer's share of domestic INPS contributions, rigo E23 (730) / RP23
+  # (Redditi PF), cash basis. Cassa Colf is not deductible.
+  deduzione_max: "1549.37"
+
+# TFR revaluation coefficients (percent, cumulative from the previous December), art. 2120 c.c.
+# = 1.5% x months/12 + 75% of the ISTAT FOI change. Fill in as ISTAT publishes them; a needed
+# month that is missing raises.
+tfr_coefficienti: {}

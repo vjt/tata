@@ -1,0 +1,52 @@
+[project]
+name = "tata"
+version = "0.1.0"
+description = "Hours and payslips for one Italian domestic worker (CCNL lavoro domestico)"
+requires-python = ">=3.13"
+license = "MIT"
+dependencies = [
+    "fastapi==0.142.4",
+    "uvicorn==0.54.0",
+    "jinja2==3.1.6",
+    "python-multipart==0.0.32",
+    "pyyaml==6.0.3",
+    "pydantic==2.13.5",
+    "weasyprint==70.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "pytest-timeout==2.4.0",
+    "httpx==0.28.1",
+    "ruff==0.16.10",
+    "pyright[nodejs]==1.1.414",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tata = ["templates/*", "static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+addopts = "--timeout=5 -p no:cacheprovider -W error"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+cache-dir = "/tmp/ruff-cache"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PLC0415", "DTZ"]
+
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "strict"
+pythonVersion = "3.13"

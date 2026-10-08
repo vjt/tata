@@ -1,0 +1,22 @@
+# Production stack. Every host-specific value comes from .env (gitignored, see .env.example).
+services:
+  tata:
+    build:
+      context: .
+      target: runtime
+    container_name: tata
+    restart: unless-stopped
+    hostname: tata
+    environment:
+      - TATA_PASSWORD
+    volumes:
+      - ${TATA_DATA}:/data
+      - ${TATA_CERTS}:/certs:ro
+    networks:
+      lan:
+        ipv4_address: ${TATA_IP}
+
+networks:
+  lan:
+    name: ${TATA_NETWORK}
+    external: true

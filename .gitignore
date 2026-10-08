@@ -1,0 +1,17 @@
+# Personal data never lives in this repo.
+/data/
+*.sqlite
+*.sqlite3
+*.db
+*.pdf
+.env
+
+# Local working files
+/PLAN.md
+/STATUS
+/WORKER_PROMPT.md
+/.claude/settings.local.json
+
+__pycache__/
+*.egg-info/
+.venv/
