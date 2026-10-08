@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from tata.hours import DayWork, month_work
+from tata.hours import DayWork, month_work, range_days
 from tata.models import Bucket, EventKind, Span
 from tests.helpers import STANDARD, contract, event, rates_2026, span, standard_contract
 
@@ -145,3 +145,38 @@ def test_week_spanning_month_start_counts_previous_days() -> None:
 
 def test_standard_schedule_fixture_is_fifteen_hours() -> None:
     assert sum(s.end - s.start for d in STANDARD for s in d) == 15 * 60
+
+
+def test_ferie_range_skips_sundays_and_festivita() -> None:
+    worker = standard_contract(HIRED)
+    # Thu 31 Dec 2026 - Thu 7 Jan 2027: 1 and 6 Jan are festività, 3 Jan is Sunday
+    days = range_days(worker, EventKind.FERIE, date(2026, 12, 31), date(2027, 1, 7))
+    assert days == [
+        date(2026, 12, 31),
+        date(2027, 1, 2),
+        date(2027, 1, 4),
+        date(2027, 1, 5),
+        date(2027, 1, 7),
+    ]
+
+
+def test_malattia_range_is_every_calendar_day() -> None:
+    worker = standard_contract(HIRED)
+    days = range_days(worker, EventKind.MALATTIA, date(2026, 10, 9), date(2026, 10, 12))
+    assert len(days) == 4
+
+
+def test_whole_day_absence_range_is_scheduled_days_only() -> None:
+    worker = standard_contract(HIRED)
+    days = range_days(worker, EventKind.ASSENZA, date(2026, 10, 9), date(2026, 10, 12))
+    assert days == [date(2026, 10, 9), date(2026, 10, 12)]
+
+
+def test_extra_hours_cannot_span_days() -> None:
+    with pytest.raises(ValueError, match="un giorno"):
+        range_days(standard_contract(HIRED), EventKind.EXTRA, date(2026, 10, 9), date(2026, 10, 10))
+
+
+def test_range_outside_employment_is_rejected() -> None:
+    with pytest.raises(ValueError, match="rapporto"):
+        range_days(standard_contract(HIRED), EventKind.FERIE, date(2025, 12, 30), date(2026, 1, 2))

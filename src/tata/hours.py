@@ -55,6 +55,37 @@ def month_work(
     return result
 
 
+def range_days(contract: Contract, kind: EventKind, first: date, last: date) -> list[date]:
+    """The days a whole-day event over first..last applies to. Raises ValueError if invalid.
+
+    Ferie: Monday-Saturday excluding festività (art. 17, chiarimento). Malattia: every calendar
+    day (art. 27 counts calendar days). Permesso/assenza: only days with scheduled hours.
+    Extra hours are a single day.
+    """
+    if last < first:
+        raise ValueError("intervallo di date rovesciato")
+    if kind is EventKind.EXTRA and first != last:
+        raise ValueError("le ore extra si registrano un giorno alla volta")
+    if not (contract.employed_on(first) and contract.employed_on(last)):
+        raise ValueError(f"{first} - {last} è fuori dal rapporto di lavoro")
+    holidays: frozenset[date] = frozenset()
+    for year in range(first.year, last.year + 1):
+        holidays |= festivita(year, contract.patrono_mese, contract.patrono_giorno)
+    days: list[date] = []
+    day = first
+    while day <= last:
+        if kind is EventKind.FERIE:
+            keep = day.weekday() != SUNDAY and day not in holidays
+        elif kind in (EventKind.PERMESSO, EventKind.ASSENZA):
+            keep = bool(contract.orario[day.weekday()]) and day not in holidays
+        else:
+            keep = True
+        if keep:
+            days.append(day)
+        day += timedelta(days=1)
+    return days
+
+
 def _day_work(
     contract: Contract,
     day: date,
