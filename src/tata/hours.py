@@ -16,6 +16,7 @@ SUNDAY = 6
 class DayWork(Frozen):
     day: date
     buckets: dict[Bucket, int]  # worked minutes by pay bucket; only non-zero entries
+    scheduled: int  # minutes the schedule foresaw, before exceptions (0 on festività)
     permesso: int  # paid-leave minutes (art. 19)
     ferie: bool
     malattia: bool
@@ -107,6 +108,7 @@ def _day_work(
         for s in contract.orario[day.weekday()]:
             scheduled |= s.minutes()
 
+    foreseen = len(scheduled)
     permesso = 0
     if whole:
         if EventKind.PERMESSO in whole:
@@ -128,6 +130,7 @@ def _day_work(
     return DayWork(
         day=day,
         buckets=_classify(sorted(worked), festivo, week_minutes_before, rates.ccnl),
+        scheduled=foreseen,
         permesso=permesso,
         ferie=EventKind.FERIE in whole,
         malattia=EventKind.MALATTIA in whole,

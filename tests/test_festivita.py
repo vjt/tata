@@ -20,3 +20,8 @@ def test_2026_has_thirteen_festivita_with_easter_monday_and_patrono() -> None:
 def test_patrono_on_a_national_holiday_is_counted_once() -> None:
     # A patrono on 8 December coincides with a national holiday: one day, not two.
     assert len(festivita(2026, patrono_mese=12, patrono_giorno=8)) == 12
+
+
+def test_san_francesco_is_a_festivita_only_from_2026() -> None:
+    assert date(2025, 10, 4) not in festivita(2025, patrono_mese=6, patrono_giorno=29)
+    assert date(2026, 10, 4) in festivita(2026, patrono_mese=6, patrono_giorno=29)

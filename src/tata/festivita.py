@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 
-# Art. 16 c.1. 4 October is a national holiday again from 2026 (L. 151/2025), listed by the CCNL.
+# Art. 16 c.1.
 FIXED = (
     (1, 1),
     (1, 6),
@@ -10,12 +10,15 @@ FIXED = (
     (5, 1),
     (6, 2),
     (8, 15),
-    (10, 4),
     (11, 1),
     (12, 8),
     (12, 25),
     (12, 26),
 )
+
+
+# 4 October is a national holiday again from 2026 (L. 151/2025), listed by the CCNL.
+SAN_FRANCESCO_FROM = 2026
 
 
 def easter_sunday(year: int) -> date:
@@ -35,6 +38,8 @@ def easter_sunday(year: int) -> date:
 
 def festivita(year: int, patrono_mese: int, patrono_giorno: int) -> frozenset[date]:
     days = {date(year, m, d) for m, d in FIXED}
+    if year >= SAN_FRANCESCO_FROM:
+        days.add(date(year, 10, 4))
     days.add(easter_sunday(year) + timedelta(days=1))
     days.add(date(year, patrono_mese, patrono_giorno))
     return frozenset(days)

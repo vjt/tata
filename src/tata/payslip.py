@@ -60,6 +60,8 @@ class Payslip(Frozen):
     ferie_residue: Decimal
     permessi_spettanti: int  # minutes, this calendar year
     permessi_goduti: int
+    permessi_eccedenti: bool  # art. 19 allowance exceeded: check it was lutto/nascita (c.3-4)
+    imponibile_tfr: Decimal  # lordo + full pay of sick days (art. 2120 c.3 c.c.)
     tfr_quota: Decimal
 
 
@@ -130,12 +132,16 @@ def compute_payslip(
                 importo=Decimal(0),
             )
         )
-    # INPS hours of a paid sick day: the hours it was scheduled for.
-    paid_minutes += sum(_scheduled(contract, d.day) for d in month_sick if sick[d.day] > 0)
+    # INPS hours of a paid sick day: the hours it was scheduled for (none on a festività).
+    paid_minutes += sum(d.scheduled for d in month_sick if sick[d.day] > 0)
+    # Art. 2120 c.3 c.c. (CCNL art. 41): TFR counts the full pay of the sick days.
+    sick_shortfall = sum(
+        (monthly / DAYS_IN_MONTH_CCNL * (1 - sick[d.day]) for d in month_sick), Decimal(0)
+    )
 
     months_this_year = sum(1 for m in range(1, month + 1) if counts_as_month(contract, year, m))
     tredicesima = euro(monthly * months_this_year / 12)
-    ending = contract.cessazione is not None and contract.cessazione <= last_day
+    ending = contract.cessazione is not None and days[0].day <= contract.cessazione <= last_day
     if month == 12 or ending:
         lines.append(
             Line(
@@ -154,11 +160,14 @@ def compute_payslip(
         sum(1 for e in events if e.kind is EventKind.FERIE and e.day <= last_day)
     )
     ferie_residue = ferie_maturate - ferie_godute
-    if ending and ferie_residue:
+    if ending and ferie_residue > 0:  # ferie taken in advance are not deducted (art. 17 c.9)
         lines.append(_days_line("Ferie non godute", ferie_residue, day_share, p))
         paid_minutes += ferie_residue * day_share
 
     lordo = sum((li.importo for li in lines), Decimal(0))
+    imponibile_tfr = lordo + euro(sick_shortfall)
+    spettanti = permessi_spettanti(contract, year, rates)
+    goduti = _permessi_goduti(contract, events, year, month, rates)
     ore = euro(paid_minutes / 60)
     oraria_effettiva = euro(p * 13 / 12)
     contributo = rates.inps.contributo(oraria_effettiva, weekly)
@@ -183,9 +192,11 @@ def compute_payslip(
         ferie_maturate=euro(ferie_maturate),
         ferie_godute=ferie_godute,
         ferie_residue=euro(ferie_residue),
-        permessi_spettanti=permessi_spettanti(contract, year, rates),
-        permessi_goduti=_permessi_goduti(contract, events, year, month, rates),
-        tfr_quota=euro(lordo / rates.ccnl.tfr_divisore),
+        permessi_spettanti=spettanti,
+        permessi_goduti=goduti,
+        permessi_eccedenti=goduti > spettanti,
+        imponibile_tfr=imponibile_tfr,
+        tfr_quota=euro(imponibile_tfr / rates.ccnl.tfr_divisore),
     )
 
 
@@ -295,10 +306,6 @@ def _sick_cap(contract: Contract, day: date, rates: Rates) -> int:
     if months < 24:
         return caps.fino_2_anni
     return caps.oltre
-
-
-def _scheduled(contract: Contract, day: date) -> int:
-    return sum(s.end - s.start for s in contract.orario[day.weekday()])
 
 
 def _maggiorazione(bucket: Bucket, rates: Rates) -> Decimal:

@@ -115,7 +115,7 @@ class Contract(Frozen):
             raise ValueError("l'orario deve avere 7 giorni")
         if self.cessazione is not None and self.cessazione < self.assunzione:
             raise ValueError("cessazione precedente all'assunzione")
-        date(2000, self.patrono_mese, self.patrono_giorno)  # raises if not a real day
+        date(2001, self.patrono_mese, self.patrono_giorno)  # must exist every year: no 29/02
         return self
 
     def weekly_minutes(self) -> int:

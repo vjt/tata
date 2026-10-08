@@ -189,3 +189,62 @@ def test_cessazione_pays_tredicesima_ratei_and_unused_ferie() -> None:
     # 26 x 10/12 = 21,667 days x 2,5 h = 54,167 h x 8,86 = 479,92
     assert line(slip, "Ferie non godute") == Decimal("479.92")
     assert slip.lordo == Decimal("1300.95")
+
+
+def test_months_after_cessazione_pay_nothing() -> None:
+    worker = contract(
+        assunzione=date(2026, 1, 1),
+        paga="8.86",
+        cessazione=date(2026, 3, 20),
+        orario=STANDARD,
+        tab_h=False,
+    )
+    april = payslip(worker, [], 2026, 4)
+    assert april.lines == ()
+    assert april.lordo == 0
+    assert april.ore_retribuite == 0
+
+
+def test_ferie_taken_in_advance_are_not_silently_deducted_at_cessazione() -> None:
+    worker = contract(
+        assunzione=date(2026, 1, 1),
+        paga="8.86",
+        cessazione=date(2026, 2, 28),
+        orario=STANDARD,
+        tab_h=False,
+    )
+    # 2 months matured = 4,33 days; 8 taken: residue negative, art. 17 c.9 grants only twelfths
+    taken = [event(date(2026, 2, d), EventKind.FERIE, None) for d in (2, 3, 4, 5, 6, 7, 9, 10)]
+    slip = payslip(worker, taken, 2026, 2)
+    assert "Ferie non godute" not in [li.voce for li in slip.lines]
+    assert slip.ferie_residue == Decimal("-3.67")
+
+
+def test_tfr_counts_full_pay_during_malattia() -> None:
+    worker = standard_contract(date(2026, 1, 1))
+    sick = [event(date(2026, 10, d), EventKind.MALATTIA, None) for d in range(5, 10)]
+    slip = payslip(worker, sick, 2026, 10)
+    # art. 2120 c.3 c.c.: during malattia the pay that would have been due counts for TFR.
+    # Sick days paid 3 x 50% + 2 x 100% of 19,1966: the missing 1,5 days = 28,795 are added back.
+    # 541,20 + 28,80 = 570,00 ; / 13,5 = 42,222 -> 42,22
+    assert slip.imponibile_tfr == Decimal("570.00")
+    assert slip.tfr_quota == Decimal("42.22")
+
+
+def test_sick_day_on_a_festivita_adds_no_inps_hours() -> None:
+    worker = standard_contract(date(2026, 1, 1))
+    # Mon 1 - Fri 5 June 2026; Tue 2 June is a festività, already paid 2,5 h as such
+    sick = [event(date(2026, 6, d), EventKind.MALATTIA, None) for d in range(1, 6)]
+    slip = payslip(worker, sick, 2026, 6)
+    # June: 22 weekdays; 2 and 24 June festività -> 20 scheduled days x 3 h = 60 h,
+    # minus 4 sick scheduled days (1, 3, 4, 5) = 48 h worked ; festività 2 x 2,5 = 5 h ;
+    # sick hours: the 4 scheduled days = 12 h -> 65 h
+    assert slip.ore_retribuite == Decimal("65.00")
+
+
+def test_permessi_beyond_the_yearly_allowance_are_flagged() -> None:
+    worker = standard_contract(date(2026, 1, 1))
+    leave = [event(date(2026, 10, d), EventKind.PERMESSO, None) for d in (5, 6)]  # 6 h
+    assert not payslip(worker, leave, 2026, 10).permessi_eccedenti
+    leave.append(event(date(2026, 10, 7), EventKind.PERMESSO, "08:00-08:45"))
+    assert payslip(worker, leave, 2026, 10).permessi_eccedenti

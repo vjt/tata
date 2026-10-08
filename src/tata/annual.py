@@ -111,7 +111,9 @@ def tfr(
     for y in range(contract.assunzione.year, year + 1):
         upto = 12 if y < year else month
         rates = book.get(y)
-        imponibile = sum((s.lordo for s in year_payslips(contract, y, upto, source)), Decimal(0))
+        imponibile = sum(
+            (s.imponibile_tfr for s in year_payslips(contract, y, upto, source)), Decimal(0)
+        )
         coefficient_month = 12 if y < year else month - 1
         coefficiente = (
             Decimal(0) if coefficient_month == 0 else rates.tfr_coefficienti.get(coefficient_month)
