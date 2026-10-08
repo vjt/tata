@@ -36,7 +36,9 @@ Who taps: the employer, on their own phone. The worker never uses the app.
 | No open punch, `now` within `WINDOW` of a scheduled span's end, span not yet recorded | **Conferma turno HH:MM–HH:MM** (records the scheduled span as worked: the "forgot to start" case) |
 | Anything else | **Inizio turno** |
 
-`WINDOW` = 30 minutes, a named constant. A secondary small link always offers the other
+`WINDOW` = 30 minutes, a named constant. "Near the end" also requires being past the span's
+midpoint, so a 45-minute span does not propose "confirm" a quarter of an hour in. "Near the start"
+needs no rule of its own: without an open punch, Inizio is already the default. A secondary small link always offers the other
 action, so a wrong guess never blocks the user.
 
 An open punch from a previous day is NOT auto-closed: the page asks for its end time
@@ -57,8 +59,9 @@ docked for parking).
 - `/timbra`: the button page. Server-rendered, the proposal computed server-side; the button is
   a `<form method=post>`. No JavaScript, consistent with the rest of the app.
 - `static/manifest.webmanifest` (`display: standalone`, `start_url: /timbra`, icons from the
-  existing logo at 192 and 512 px), linked from `base.html` with `crossorigin="use-credentials"`
-  because the whole app is behind HTTP Basic.
+  existing logo at 192 and 512 px), linked from `base.html`. `/static` is outside HTTP Basic (a
+  mounted app does not inherit the auth dependency), so browsers fetch manifest and icons without
+  credentials; nothing personal lives there.
 - No service worker: a punch without the server is meaningless, and offline caching of payroll
   pages is a liability. If the target browser refuses to install without one, add a no-op
   worker; verify on the actual phone first.
