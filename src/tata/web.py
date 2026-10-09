@@ -33,11 +33,12 @@ from tata.annual import (
 from tata.festivita import festivita
 from tata.hours import month_work, range_days
 from tata.inps import quarter_contributions, quarter_months
-from tata.models import Contract, Event, EventKind, Frozen, Livello, Payment, Span
+from tata.models import Contract, Event, EventKind, Frozen, Livello, Payment, Punch, Span
 from tata.payslip import Payslip, compute_payslip
 from tata.pdf import render_pdf
 from tata.rates import RatesBook
 from tata.store import Store
+from tata.timbratura import Action, Shortfall, check_punches, overruns, propose, shortfalls
 
 HERE = Path(__file__).parent
 MESI = ("", "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto",
@@ -114,6 +115,85 @@ def create_app(settings: Settings, now: Clock) -> FastAPI:
         """Raise ValueError now, at write time, rather than bricking a month page later."""
         for year, month in sorted({(e.day.year, e.day.month) for e in events}):
             month_work(contract, events, year, month, book.get(year))
+
+    def minute_of(moment: datetime) -> int:
+        return moment.hour * 60 + moment.minute
+
+    def pending(contract: Contract, year: int, month: int) -> list[Shortfall]:
+        """Shortfalls of an open month; a finalized month has nothing left to confirm."""
+        if store.final_payslip(year, month) is not None:
+            return []
+        return [
+            s
+            for s in shortfalls(contract, store.events(), store.punches(), now())
+            if (s.day.year, s.day.month) == (year, month)
+        ]
+
+    def save_punch(contract: Contract, draft: Punch) -> None:
+        """Validate a closed punch and its EXTRA against everything stored, then write it."""
+        if not contract.employed_on(draft.day):
+            raise ValueError(f"il {draft.day} è fuori dal rapporto di lavoro")
+        others = [p for p in store.punches() if p.id != draft.id]
+        check_punches([*others, draft])
+        extras = overruns(contract, draft)
+        drafts = [Event(id=0, day=draft.day, kind=EventKind.EXTRA, span=s, note="") for s in extras]
+        check_events(contract, store.events() + drafts)
+        if draft.id == 0:
+            store.add_punch(draft.day, draft.start, draft.end, extras)
+        else:
+            if draft.end is None:
+                raise ValueError("ora di uscita mancante")
+            store.close_punch(draft.id, draft.end, extras)
+
+    # ---- cartellino
+
+    @app.get("/timbra", response_class=HTMLResponse)
+    def punch_page(request: Request) -> HTMLResponse:
+        contract = require_contract()
+        punches = store.punches()
+        moment = now()
+        open_ = next((p for p in punches if p.end is None), None)
+        return templates.TemplateResponse(
+            request,
+            "timbra.html",
+            {
+                "proposal": propose(contract, punches, moment),
+                "open": open_,
+                "stale": open_ is not None and open_.day != moment.date(),
+                "today": moment.date(),
+                "actions": Action,
+            },
+        )
+
+    @app.post("/timbra/inizio")
+    def punch_in() -> RedirectResponse:
+        contract = require_contract()
+        moment = now()
+        draft = Punch(id=0, day=moment.date(), start=minute_of(moment), end=None)
+        if not contract.employed_on(draft.day):
+            raise ValueError(f"il {draft.day} è fuori dal rapporto di lavoro")
+        check_punches([*store.punches(), draft])
+        store.add_punch(draft.day, draft.start, None, [])
+        return RedirectResponse("/timbra", status_code=303)
+
+    @app.post("/timbra/fine")
+    async def punch_out(request: Request) -> RedirectResponse:
+        contract = require_contract()
+        form = await request.form()
+        alle, moment = _field(form, "alle"), now()
+        open_ = next((p for p in store.punches() if p.end is None), None)
+        if open_ is None:
+            raise ValueError("nessuna timbratura aperta")
+        if alle:
+            end = Span.parse(f"00:00-{alle}").end
+        elif open_.day == moment.date():
+            end = minute_of(moment)
+        else:
+            raise ValueError(f"indica l'ora di uscita del {open_.day:%d/%m/%Y}")
+        # Built explicitly, not model_copy (which skips validation): a same-minute exit must
+        # raise the Span error (400) before anything is written.
+        save_punch(contract, Punch(id=open_.id, day=open_.day, start=open_.start, end=end))
+        return RedirectResponse("/timbra", status_code=303)
 
     def source(contract: Contract) -> PayslipSource:
         events = store.events()
@@ -192,6 +272,10 @@ def create_app(settings: Settings, now: Clock) -> FastAPI:
                 "events": month_events,
                 "kinds": list(EventKind),
                 "slip": slip,
+                "punches": [
+                    p for p in store.punches() if (p.day.year, p.day.month) == (year, month)
+                ],
+                "pending": pending(contract, year, month),
                 "final": store.final_payslip(year, month) is not None,
                 "tfr": tfr(contract, store.advances(), year, month, source(contract), book),
                 "prev": f"/mese/{prev_y}/{prev_m}",
@@ -219,8 +303,26 @@ def create_app(settings: Settings, now: Clock) -> FastAPI:
         py, pm = (year - 1, 12) if month == 1 else (year, month - 1)
         if employed_months(contract, py, pm)[-1:] == [pm] and store.final_payslip(py, pm) is None:
             raise ValueError(f"finalizza prima {MESI[pm]} {py}: i mesi si chiudono in ordine")
+        if pending(contract, year, month):
+            raise ValueError(f"ci sono mancanze da confermare in {MESI[month]} {year}")
         store.finalize(compute_payslip(contract, store.events(), year, month, book.get(year)))
         return RedirectResponse(f"/mese/{year}/{month}", status_code=303)
+
+    @app.post("/timbrature")
+    async def add_punch(request: Request) -> RedirectResponse:
+        contract = require_contract()
+        form = await request.form()
+        day = date.fromisoformat(_field(form, "giorno"))
+        s = Span.parse(f"{_field(form, 'inizio')}-{_field(form, 'fine')}")
+        save_punch(contract, Punch(id=0, day=day, start=s.start, end=s.end))
+        if day == now().date():
+            return RedirectResponse("/timbra", status_code=303)
+        return RedirectResponse(f"/mese/{day.year}/{day.month}", status_code=303)
+
+    @app.post("/timbrature/{punch_id}/elimina")
+    def delete_punch(punch_id: int) -> RedirectResponse:
+        day = store.delete_punch(punch_id)
+        return RedirectResponse(f"/mese/{day.year}/{day.month}", status_code=303)
 
     # ---- events
 

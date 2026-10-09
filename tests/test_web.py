@@ -241,3 +241,119 @@ def test_year_page_marks_future_quarters_as_projection(tmp_path: Path) -> None:
     assert "stima" in page.text
     # TFR through November only: (398,70 + 580,33) / 13,5 = 72,52
     assert "72,52" in page.text
+
+
+def rome(year: int, month: int, day: int, hour: int, minute: int) -> datetime:
+    return datetime(year, month, day, hour, minute, tzinfo=ZoneInfo("Europe/Rome"))
+
+
+class FakeClock:
+    """A settable clock: punch tests move time forward between taps."""
+
+    def __init__(self, start: datetime) -> None:
+        self.value = start
+
+    def __call__(self) -> datetime:
+        return self.value
+
+
+def punching(tmp_path: Path, start: datetime) -> tuple[TestClient, FakeClock]:
+    clock = FakeClock(start)
+    c = TestClient(
+        create_app(settings(tmp_path), clock), headers=basic(PASSWORD), follow_redirects=False
+    )
+    assert c.post("/contratto", data=CONTRACT_FORM).status_code == 303
+    return c, clock
+
+
+def test_button_start_then_stop_with_overrun(tmp_path: Path) -> None:
+    # Tue 13/10, schedule 15:45-18:00. In at 15:44 (1 min early, tolerated), out at 18:40.
+    c, clock = punching(tmp_path, rome(2026, 10, 13, 15, 44))
+    assert "Inizio turno" in c.get("/timbra").text
+    assert c.post("/timbra/inizio").headers["location"] == "/timbra"
+    clock.value = rome(2026, 10, 13, 18, 40)
+    assert "Fine turno" in c.get("/timbra").text
+    assert c.post("/timbra/fine", data={"alle": ""}).status_code == 303
+    page = c.get("/mese/2026/10").text
+    assert "15:44-18:40" in page  # cartellino
+    assert "extra 18:00-18:40" in page  # generated event
+
+
+def test_confirm_records_the_scheduled_span(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 18, 10))
+    page = c.get("/timbra").text
+    assert "Conferma turno 15:45-18:00" in page
+    r = c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
+    assert r.headers["location"] == "/timbra"
+    assert "Inizio turno" in c.get("/timbra").text  # span recorded, not proposed again
+
+
+def test_shortfall_is_proposed_and_blocks_finalize_until_confirmed(tmp_path: Path) -> None:
+    # Tue 13/10 punched only in the afternoon; the 08:00-08:45 span is pending.
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 18, 30))
+    c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
+    page = c.get("/mese/2026/10").text
+    assert "Da confermare" in page and "08:00-08:45" in page
+    r = c.post("/mese/2026/10/finalizza")
+    assert r.status_code == 400 and "da confermare" in r.text
+    c.post(
+        "/eventi",
+        data={
+            "kind": "mora",
+            "dal": "2026-10-13",
+            "al": "",
+            "inizio": "08:00",
+            "fine": "08:45",
+            "note": "",
+        },
+    )
+    assert "Da confermare" not in c.get("/mese/2026/10").text
+
+
+def test_stale_open_punch_asks_for_the_exit_time(tmp_path: Path) -> None:
+    c, clock = punching(tmp_path, rome(2026, 10, 13, 15, 45))
+    c.post("/timbra/inizio")
+    clock.value = rome(2026, 10, 14, 7, 55)
+    page = c.get("/timbra").text
+    assert 'name="alle"' in page and "13/10/2026" in page
+    r = c.post("/timbra/fine", data={"alle": ""})
+    assert r.status_code == 400 and "ora di uscita" in r.text
+    assert c.post("/timbra/fine", data={"alle": "18:00"}).status_code == 303
+
+
+def test_stop_in_the_same_minute_is_refused(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 15, 45))
+    c.post("/timbra/inizio")
+    r = c.post("/timbra/fine", data={"alle": ""})
+    assert r.status_code == 400
+    assert "Fine turno" in c.get("/timbra").text  # still open, nothing stored
+
+
+def test_shortfalls_of_a_finalized_month_are_ignored(tmp_path: Path) -> None:
+    # October finalized on 20/10; later October spans must not haunt the month page.
+    c, clock = punching(tmp_path, rome(2026, 10, 20, 18, 30))
+    c.post("/timbrature", data={"giorno": "2026-10-20", "inizio": "15:45", "fine": "18:00"})
+    c.post(
+        "/eventi",
+        data={
+            "kind": "mora",
+            "dal": "2026-10-20",
+            "al": "",
+            "inizio": "08:00",
+            "fine": "08:45",
+            "note": "",
+        },
+    )
+    assert c.post("/mese/2026/10/finalizza").status_code == 303
+    clock.value = rome(2026, 11, 3, 9, 0)
+    assert "Da confermare" not in c.get("/mese/2026/10").text
+    assert "Da confermare" in c.get("/mese/2026/11").text  # 2/11 unpunched, 3/11 morning
+
+
+def test_deleting_a_punch_removes_its_extra(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 20, 0))
+    c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "19:00"})
+    page = c.get("/mese/2026/10").text
+    punch_id = page.split('action="/timbrature/')[1].split("/")[0]
+    assert c.post(f"/timbrature/{punch_id}/elimina").status_code == 303
+    assert "extra 18:00-19:00" not in c.get("/mese/2026/10").text

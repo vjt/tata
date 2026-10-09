@@ -69,6 +69,56 @@
 </section>
 {% endif %}
 
+{% if pending %}
+<section class="card error">
+  <h2>Da confermare</h2>
+  <ul class="events">
+  {% for s in pending %}
+    <li>
+      <span>{{ s.day | dmy }} · {{ s.span }} non timbrato</span>
+      <span class="actions">
+      {% for kind, label in [("assenza", "assente"), ("permesso", "permesso"), ("mora", "mandata a casa")] %}
+        <form method="post" action="/eventi">
+          <input type="hidden" name="kind" value="{{ kind }}">
+          <input type="hidden" name="dal" value="{{ s.day.isoformat() }}">
+          <input type="hidden" name="al" value="">
+          <input type="hidden" name="inizio" value="{{ s.span.start | ore }}">
+          <input type="hidden" name="fine" value="{{ s.span.end | ore }}">
+          <input type="hidden" name="note" value="">
+          <button class="small">{{ label }}</button>
+        </form>
+      {% endfor %}
+      </span>
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Cartellino</h2>
+  {% if punches %}
+  <ul class="events">
+  {% for p in punches %}
+    <li>
+      <span>{{ p.day | dmy }} · {% if p.end is none %}dalle {{ p.start | ore }} (aperta){% else %}{{ p.span() }}{% endif %}</span>
+      {% if not final %}
+      <form method="post" action="/timbrature/{{ p.id }}/elimina"><button class="link">elimina</button></form>
+      {% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+  {% endif %}
+  {% if not final %}
+  <form method="post" action="/timbrature" class="form inline">
+    <input type="date" name="giorno" required value="{{ selected }}">
+    <input name="inizio" required placeholder="entrata hh:mm" pattern="\d{1,2}:\d{2}">
+    <input name="fine" required placeholder="uscita hh:mm" pattern="\d{1,2}:\d{2}">
+    <button>Aggiungi timbratura</button>
+  </form>
+  {% endif %}
+</section>
+
 <section class="card">
   <h2>Prospetto paga {% if final %}<small>(finalizzato)</small>{% endif %}</h2>
   {% include "_prospetto.html" %}
