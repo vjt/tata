@@ -1,0 +1,13 @@
+{
+  "name": "tata",
+  "short_name": "tata",
+  "start_url": "/timbra",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f6f3",
+  "theme_color": "#2f6f5e",
+  "icons": [
+    {"src": "/static/logo.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/static/logo-512.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}

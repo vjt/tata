@@ -386,3 +386,18 @@ def test_punch_in_a_finalized_month_is_refused(tmp_path: Path) -> None:
     assert c.post("/mese/2026/10/finalizza").status_code == 303
     r = c.post("/timbrature", data={"giorno": "2026-10-14", "inizio": "15:45", "fine": "18:00"})
     assert r.status_code == 400 and "finalizzato" in r.text
+
+
+def test_manifest_is_public_and_linked(tmp_path: Path) -> None:
+    app = create_app(settings(tmp_path), end_of_2026)
+    # Browsers fetch the manifest and icons without credentials: /static must stay public.
+    r = TestClient(app).get("/static/manifest.webmanifest")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/manifest+json")
+    manifest = r.json()
+    assert manifest["start_url"] == "/timbra"
+    assert manifest["display"] == "standalone"
+    for icon in manifest["icons"]:
+        assert TestClient(app).get(icon["src"]).status_code == 200
+    page = hired(tmp_path).get("/timbra").text
+    assert 'rel="manifest" href="/static/manifest.webmanifest"' in page
