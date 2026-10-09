@@ -401,3 +401,41 @@ def test_manifest_is_public_and_linked(tmp_path: Path) -> None:
         assert TestClient(app).get(icon["src"]).status_code == 200
     page = hired(tmp_path).get("/timbra").text
     assert 'rel="manifest" href="/static/manifest.webmanifest"' in page
+
+
+def test_contract_change_recomputes_the_punch_extras(tmp_path: Path) -> None:
+    # Tue 13/10 punched 15:45-18:00, exactly the schedule: no EXTRA. The afternoon span then
+    # moves to 16:00-18:00: 15:45-16:00 (15 min > TOLERANCE) is now outside the schedule.
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 20, 0))
+    c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
+    assert "extra 15:45-16:00" not in c.get("/mese/2026/10").text
+    moved = {**CONTRACT_FORM, "orario_1": "08:00-08:45, 16:00-18:00"}
+    assert c.post("/contratto", data=moved).status_code == 303
+    assert "extra 15:45-16:00" in c.get("/mese/2026/10").text
+    assert c.post("/contratto", data=CONTRACT_FORM).status_code == 303  # and back
+    assert "extra 15:45-16:00" not in c.get("/mese/2026/10").text
+
+
+def test_contract_change_leaving_a_punch_outside_employment_is_refused(tmp_path: Path) -> None:
+    # Punch on 13/10 within the schedule (no EXTRA); hiring moved to 19/10 would orphan it.
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 20, 0))
+    c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
+    later = {**CONTRACT_FORM, "assunzione": "2026-10-19"}
+    r = c.post("/contratto", data=later)
+    assert r.status_code == 400 and "fuori dal rapporto" in r.text
+    assert 'value="2026-10-12"' in c.get("/contratto").text  # old contract still in force
+
+
+def test_punch_on_a_future_day_is_refused(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 20, 0))
+    r = c.post("/timbrature", data={"giorno": "2026-10-14", "inizio": "08:00", "fine": "08:45"})
+    assert r.status_code == 400 and "futuro" in r.text
+    assert 'action="/timbrature/' not in c.get("/mese/2026/10").text  # nothing stored
+
+
+def test_exit_later_than_now_is_refused(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 15, 45))
+    c.post("/timbra/inizio")
+    r = c.post("/timbra/fine", data={"alle": "18:00"})  # it is 15:45
+    assert r.status_code == 400 and "futuro" in r.text
+    assert "Fine turno" in c.get("/timbra").text  # still open, nothing stored

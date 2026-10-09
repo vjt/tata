@@ -63,7 +63,9 @@ Nella pagina del mese:
 
 - **Cartellino**: le timbrature (cancellabili, inseribili a mano; oltre 8 h evidenziate). Alla
   chiusura di una timbratura il tempo fuori orario (oltre 5 minuti) diventa un evento EXTRA
-  collegato; cancellando la timbratura sparisce anche quello.
+  collegato; cancellando la timbratura sparisce anche quello. Cambiando l'orario nel contratto
+  gli EXTRA delle timbrature dei mesi non finalizzati vengono ricalcolati. Non si registrano
+  timbrature nel futuro (uscita dopo l'ora attuale).
 - **Da confermare**: i vuoti rispetto all'orario previsto (si contano dalla prima timbratura in
   poi; ignorati i buchi fino a 5 minuti, le festività, i giorni di ferie o malattia). Per ognuno
   tre pulsanti: *assente* (ASSENZA), *permesso* (PERMESSO), *mandata a casa* (MORA: pagata come

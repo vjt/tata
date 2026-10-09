@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS punch_event (
     event_id INTEGER PRIMARY KEY,
     punch_id INTEGER NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS one_open_punch ON punch ((stop IS NULL)) WHERE stop IS NULL;
 """
 
 
@@ -62,9 +63,19 @@ def _insert_extras(db: sqlite3.Connection, punch_id: int, day: date, extras: lis
             "INSERT INTO event (day, kind, span_start, span_end, note) VALUES (?, ?, ?, ?, ?)",
             (day.isoformat(), EventKind.EXTRA.value, s.start, s.end, "timbratura"),
         ).lastrowid
+        if event_id is None:  # would let punch_event auto-assign an unrelated id
+            raise RuntimeError("sqlite non ha restituito un id")
         db.execute(
             "INSERT INTO punch_event (event_id, punch_id) VALUES (?, ?)", (event_id, punch_id)
         )
+
+
+def _delete_extras(db: sqlite3.Connection, punch_id: int) -> None:
+    db.execute(
+        "DELETE FROM event WHERE id IN (SELECT event_id FROM punch_event WHERE punch_id = ?)",
+        (punch_id,),
+    )
+    db.execute("DELETE FROM punch_event WHERE punch_id = ?", (punch_id,))
 
 
 class Store:
@@ -93,12 +104,21 @@ class Store:
         rows = self._read("SELECT data FROM contract WHERE id = 1", ())
         return Contract.model_validate_json(str(rows[0][0])) if rows else None
 
-    def save_contract(self, contract: Contract) -> None:
-        self._write(
-            "INSERT INTO contract (id, data) VALUES (1, ?) "
-            "ON CONFLICT (id) DO UPDATE SET data = excluded.data",
-            (contract.model_dump_json(),),
-        )
+    def save_contract(self, contract: Contract, punch_extras: dict[int, list[Span]]) -> None:
+        """Saves the contract and, in the same transaction, replaces the EXTRA events of each
+        punch in `punch_extras` with the given spans (the overruns under the new schedule)."""
+        days = {p.id: p.day for p in self.punches()}
+        for punch_id in punch_extras:
+            self._refuse_if_final(days[punch_id])
+        with closing(sqlite3.connect(self._path)) as db, db:
+            for punch_id, extras in punch_extras.items():
+                _delete_extras(db, punch_id)
+                _insert_extras(db, punch_id, days[punch_id], extras)
+            db.execute(
+                "INSERT INTO contract (id, data) VALUES (1, ?) "
+                "ON CONFLICT (id) DO UPDATE SET data = excluded.data",
+                (contract.model_dump_json(),),
+            )
 
     # ---- events
 
@@ -160,10 +180,15 @@ class Store:
         self._refuse_if_final(day)
         draft = Punch(id=0, day=day, start=start, end=end)  # validates first
         with closing(sqlite3.connect(self._path)) as db, db:
-            new_id = db.execute(
-                "INSERT INTO punch (day, start, stop) VALUES (?, ?, ?)",
-                (day.isoformat(), start, end),
-            ).lastrowid
+            try:
+                new_id = db.execute(
+                    "INSERT INTO punch (day, start, stop) VALUES (?, ?, ?)",
+                    (day.isoformat(), start, end),
+                ).lastrowid
+            except sqlite3.IntegrityError as e:
+                if "one_open_punch" not in str(e):
+                    raise
+                raise ValueError("c'è già una timbratura aperta") from e
             if new_id is None:
                 raise RuntimeError("sqlite non ha restituito un id")
             _insert_extras(db, new_id, day, extras)
@@ -184,14 +209,14 @@ class Store:
         punch = self._punch(punch_id)
         self._refuse_if_final(punch.day)
         with closing(sqlite3.connect(self._path)) as db, db:
-            db.execute(
-                "DELETE FROM event "
-                "WHERE id IN (SELECT event_id FROM punch_event WHERE punch_id = ?)",
-                (punch_id,),
-            )
-            db.execute("DELETE FROM punch_event WHERE punch_id = ?", (punch_id,))
+            _delete_extras(db, punch_id)
             db.execute("DELETE FROM punch WHERE id = ?", (punch_id,))
         return punch.day
+
+    def punch_links(self) -> dict[int, int]:
+        """The EXTRA events a punch generated: event id -> punch id."""
+        rows = self._read("SELECT event_id, punch_id FROM punch_event", ())
+        return {int(str(e)): int(str(p)) for e, p in rows}
 
     def _punch(self, punch_id: int) -> Punch:
         found = [p for p in self.punches() if p.id == punch_id]

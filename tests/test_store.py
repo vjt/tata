@@ -18,7 +18,7 @@ def test_contract_round_trips(tmp_path: Path) -> None:
     s = store(tmp_path)
     assert s.contract() is None
     worker = standard_contract(date(2026, 10, 12))
-    s.save_contract(worker)
+    s.save_contract(worker, {})
     assert Store(tmp_path / "tata.sqlite").contract() == worker
 
 
@@ -39,7 +39,7 @@ def test_deleting_a_missing_event_raises(tmp_path: Path) -> None:
 def test_finalized_month_is_immutable(tmp_path: Path) -> None:
     s = store(tmp_path)
     worker = standard_contract(date(2026, 10, 12))
-    s.save_contract(worker)
+    s.save_contract(worker, {})
     ev = s.add_event(date(2026, 10, 13), EventKind.ASSENZA, None, "")
     slip = compute_payslip(worker, s.events(), 2026, 10, rates_2026())
     s.finalize(slip)
@@ -115,3 +115,49 @@ def test_punch_in_a_finalized_month_is_refused(tmp_path: Path) -> None:
 def test_missing_punch_is_a_key_error(tmp_path: Path) -> None:
     with pytest.raises(KeyError):
         store(tmp_path).delete_punch(42)
+
+
+def test_close_and_delete_punch_in_a_finalized_month_are_refused(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    worker = standard_contract(date(2026, 10, 12))
+    opened = s.add_punch(date(2026, 10, 13), 945, None, [])
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026()))
+    with pytest.raises(ValueError, match="finalizzato"):
+        s.close_punch(opened.id, 1080, [])
+    with pytest.raises(ValueError, match="finalizzato"):
+        s.delete_punch(opened.id)
+    assert s.punches() == [opened]
+
+
+def test_a_second_open_punch_is_refused_by_the_store(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    first = s.add_punch(date(2026, 10, 13), 480, None, [])
+    with pytest.raises(ValueError, match="già una timbratura aperta"):
+        s.add_punch(date(2026, 10, 14), 480, None, [])
+    s.add_punch(date(2026, 10, 14), 480, 525, [])  # closed punches are not limited
+    assert [p.id for p in s.punches() if p.end is None] == [first.id]
+
+
+def test_saving_the_contract_replaces_the_punch_extras(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    p = s.add_punch(date(2026, 10, 13), 945, 1110, [span("18:00-18:30")])
+    manual = s.add_event(date(2026, 10, 14), EventKind.EXTRA, span("18:00-19:00"), "cena")
+    worker = standard_contract(date(2026, 10, 12))
+    s.save_contract(worker, {p.id: [span("15:45-16:00"), span("18:00-18:30")]})
+    assert s.contract() == worker
+    generated = [e for e in s.events() if e.id != manual.id]
+    assert [e.span for e in generated] == [span("15:45-16:00"), span("18:00-18:30")]
+    assert manual in s.events()  # hand-entered events are not touched
+    s.delete_punch(p.id)  # the new extras are linked to the punch
+    assert s.events() == [manual]
+
+
+def test_saving_the_contract_refuses_extras_of_a_finalized_month(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    worker = standard_contract(date(2026, 10, 12))
+    p = s.add_punch(date(2026, 10, 13), 945, 1080, [])
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026()))
+    with pytest.raises(ValueError, match="finalizzato"):
+        s.save_contract(worker, {p.id: [span("15:45-16:00")]})
+    assert s.contract() is None
+    assert s.events() == []

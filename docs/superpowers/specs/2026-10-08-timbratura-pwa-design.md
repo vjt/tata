@@ -27,7 +27,7 @@ Who taps: the employer, on their own phone. The worker never uses the app.
 
 ## 3. The button (pure function)
 
-`propose(contract, open_punch, now) -> Proposal` in a new calc module `timbratura.py`, no I/O.
+`propose(contract, punches, now) -> Proposal` in a new calc module `timbratura.py`, no I/O.
 
 | State | Proposal |
 |---|---|
@@ -43,12 +43,13 @@ action, so a wrong guess never blocks the user.
 
 An open punch from a previous day is NOT auto-closed: the page asks for its end time
 (forgotten stop). A punch never crosses midnight; one longer than 8 h is accepted but
-highlighted on the month page.
+highlighted on the month page. A punch is never in the future: a day after today, or on today
+an exit after the current minute, is refused.
 
 ## 4. Data
 
 New table `punch(id, day, start, end NULL)` in minutes from midnight, like `Span`. At most one
-open punch (enforced in `Store`). Writes to a finalized month are refused, same rule as events.
+open punch (enforced in `Store` by a partial unique index, and checked before writing). Writes to a finalized month are refused, same rule as events.
 
 Closing a punch runs the reconciliation (§7) against the scheduled spans of that day.
 Tolerance: differences of ≤ `TOLERANCE` = 5 minutes per span edge are ignored (nobody gets
@@ -113,6 +114,12 @@ of the first punch ever recorded, not covered by a punch (± `TOLERANCE`), by an
 a fact behind, or the shortfall comes back: a new `EventKind.MORA` (time span, paid, no effect
 on the hours; shown on the month page so the paid-but-not-worked time is visible).
 
-Generated events carry the `punch_id` that produced them (new nullable column on `event`).
-Deleting a punch deletes its `EXTRA` events in the same transaction; a closed punch is not
-edited, it is deleted and re-entered.
+Generated events are linked to the punch that produced them through the `punch_event` table
+(`event_id` -> `punch_id`). Deleting a punch deletes its `EXTRA` events in the same transaction;
+a closed punch is not edited, it is deleted and re-entered.
+
+The contract has no history, so saving it recomputes the `EXTRA` of every closed punch in a
+non-finalized month against the new schedule: the recomputed events are validated with
+`check_events` before anything is written, then the old linked events are replaced and the
+contract saved in one transaction. A contract change that leaves a punch outside the employment
+period is refused. An `EXTRA` the employer deleted by hand comes back on the next contract save.

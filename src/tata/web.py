@@ -129,12 +129,20 @@ def create_app(settings: Settings, now: Clock) -> FastAPI:
             if (s.day.year, s.day.month) == (year, month)
         ]
 
+    def check_employed(contract: Contract, punch: Punch) -> None:
+        if not contract.employed_on(punch.day):
+            raise ValueError(f"il {punch.day} è fuori dal rapporto di lavoro")
+
     def save_punch(contract: Contract, draft: Punch) -> None:
         """Validate a closed punch and its EXTRA against everything stored, then write it."""
         if draft.end is None:
             raise ValueError("ora di uscita mancante")
-        if not contract.employed_on(draft.day):
-            raise ValueError(f"il {draft.day} è fuori dal rapporto di lavoro")
+        check_employed(contract, draft)
+        moment = now()
+        if draft.day > moment.date() or (
+            draft.day == moment.date() and draft.end > minute_of(moment)
+        ):
+            raise ValueError("non si timbra nel futuro: l'uscita è dopo adesso")
         others = [p for p in store.punches() if p.id != draft.id]
         check_punches([*others, draft])
         extras = overruns(contract, draft)
@@ -170,8 +178,7 @@ def create_app(settings: Settings, now: Clock) -> FastAPI:
         contract = require_contract()
         moment = now()
         draft = Punch(id=0, day=moment.date(), start=minute_of(moment), end=None)
-        if not contract.employed_on(draft.day):
-            raise ValueError(f"il {draft.day} è fuori dal rapporto di lavoro")
+        check_employed(contract, draft)
         check_punches([*store.punches(), draft])
         store.add_punch(draft.day, draft.start, None, [])
         return RedirectResponse("/timbra", status_code=303)
@@ -241,8 +248,25 @@ def create_app(settings: Settings, now: Clock) -> FastAPI:
             patrono_giorno=day,
             orario=tuple(_spans(_field(form, f"orario_{d}")) for d in range(7)),
         )
-        check_events(contract, store.events())
-        store.save_contract(contract)
+        # The contract has no history: the EXTRA of every closed punch in an open month is
+        # recomputed against the new schedule, validated together with it, saved with it.
+        punches = store.punches()
+        for p in punches:
+            check_employed(contract, p)
+        recomputed = {
+            p.id: overruns(contract, p)
+            for p in punches
+            if p.end is not None and store.final_payslip(p.day.year, p.day.month) is None
+        }
+        links = store.punch_links()
+        kept = [e for e in store.events() if links.get(e.id) not in recomputed]
+        drafts = [
+            Event(id=0, day=p.day, kind=EventKind.EXTRA, span=s, note="")
+            for p in punches
+            for s in recomputed.get(p.id, [])
+        ]
+        check_events(contract, kept + drafts)
+        store.save_contract(contract, recomputed)
         return RedirectResponse("/", status_code=303)
 
     # ---- month
