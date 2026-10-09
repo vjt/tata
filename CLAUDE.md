@@ -25,7 +25,7 @@ src/tata/
   store.py      SQLite persistence (stdlib sqlite3, no ORM)
   pdf.py        HTML -> PDF via WeasyPrint
   web.py        FastAPI app factory, server-rendered Jinja2, HTTP Basic (one password)
-static/        PWA manifest + icons (public, outside HTTP Basic), no service worker
+  static/       PWA manifest + icons (public, outside HTTP Basic), no service worker
 rates/<year>.yaml  one file per year, every value with its source in a comment
 ```
 

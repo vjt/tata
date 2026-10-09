@@ -140,3 +140,11 @@ def test_recorded_span_is_not_proposed_again() -> None:
 def test_festivita_proposes_inizio() -> None:
     immacolata = at(2026, 12, 8, 17, 50)
     assert propose(WORKER, [], immacolata) == Proposal(action=Action.INIZIO, span=None)
+
+
+def test_festivita_is_never_a_shortfall() -> None:
+    # Mon 7/12 punched in full; Tue 8/12 Immacolata has nothing scheduled (festività), so at
+    # 20:00 of 8/12 nothing is pending even though nothing was punched that day.
+    mon = date(2026, 12, 7)
+    punches = [punch(mon, "08:00-08:45"), punch(mon, "15:45-18:00")]
+    assert shortfalls(WORKER, [], punches, at(2026, 12, 8, 20, 0)) == []
