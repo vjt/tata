@@ -87,6 +87,15 @@ def range_days(contract: Contract, kind: EventKind, first: date, last: date) -> 
     return days
 
 
+def scheduled_minutes(contract: Contract, day: date, is_festivita: bool) -> set[int]:
+    """Minutes the schedule foresees on day: none on a festività or outside the employment."""
+    minutes: set[int] = set()
+    if contract.employed_on(day) and not is_festivita:
+        for s in contract.orario[day.weekday()]:
+            minutes |= s.minutes()
+    return minutes
+
+
 def _day_work(
     contract: Contract,
     day: date,
@@ -103,10 +112,7 @@ def _day_work(
     if EventKind.FERIE in whole and (day.weekday() == SUNDAY or is_festivita):
         raise ValueError(f"ferie il {day}: le ferie si contano da lunedì a sabato non festivi")
 
-    scheduled: set[int] = set()
-    if contract.employed_on(day) and not is_festivita:
-        for s in contract.orario[day.weekday()]:
-            scheduled |= s.minutes()
+    scheduled = scheduled_minutes(contract, day, is_festivita)
 
     foreseen = len(scheduled)
     for ev in events:
@@ -116,7 +122,7 @@ def _day_work(
     if whole:
         if EventKind.PERMESSO in whole:
             permesso = len(scheduled)
-        scheduled = set()
+        scheduled = set[int]()
     for ev in events:
         if ev.span is not None and ev.kind in (EventKind.PERMESSO, EventKind.ASSENZA):
             removed = scheduled & ev.span.minutes()
