@@ -52,11 +52,11 @@ class Settings(Frozen):
     password: str
 
 
-Clock = Callable[[], date]
+Clock = Callable[[], datetime]
 
 
-def rome_today() -> date:
-    return datetime.now(ROME).date()
+def rome_now() -> datetime:
+    return datetime.now(ROME)
 
 
 def app_from_env() -> FastAPI:
@@ -67,11 +67,11 @@ def app_from_env() -> FastAPI:
             rates_dir=Path(os.environ["TATA_RATES_DIR"]),
             password=os.environ["TATA_PASSWORD"],
         ),
-        rome_today,
+        rome_now,
     )
 
 
-def create_app(settings: Settings, today: Clock) -> FastAPI:
+def create_app(settings: Settings, now: Clock) -> FastAPI:
     if not settings.password:
         raise ValueError("TATA_PASSWORD vuota")
     store = Store(settings.data_dir / "tata.sqlite")
@@ -129,8 +129,8 @@ def create_app(settings: Settings, today: Clock) -> FastAPI:
     @app.get("/")
     def home() -> RedirectResponse:
         require_contract()
-        now = today()
-        return RedirectResponse(f"/mese/{now.year}/{now.month}", status_code=303)
+        moment = now()
+        return RedirectResponse(f"/mese/{moment.year}/{moment.month}", status_code=303)
 
     # ---- contract
 
@@ -255,7 +255,7 @@ def create_app(settings: Settings, today: Clock) -> FastAPI:
 
     @app.get("/anno")
     def this_year() -> RedirectResponse:
-        return RedirectResponse(f"/anno/{today().year}", status_code=303)
+        return RedirectResponse(f"/anno/{now().year}", status_code=303)
 
     @app.get("/anno/{year}", response_class=HTMLResponse)
     def year_page(request: Request, year: int) -> HTMLResponse:
@@ -268,9 +268,9 @@ def create_app(settings: Settings, today: Clock) -> FastAPI:
             if any(m in months for m in quarter_months(q))
         ]
         paid = {(p.year, p.quarter): p for p in store.payments()}
-        now = today()
+        moment = now().date()
         # Months after today are a projection from the schedule: TFR stops at today's month.
-        current = 12 if year < now.year else (0 if year > now.year else now.month)
+        current = 12 if year < moment.year else (0 if year > moment.year else moment.month)
         last_month = min(months[-1] if months else 12, max(current, 1))
         projected = {q.quarter for q in quarters if quarter_months(q.quarter)[-1] > current}
         return templates.TemplateResponse(

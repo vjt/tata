@@ -1,6 +1,7 @@
 import base64
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import yaml
 from fastapi.testclient import TestClient
@@ -39,8 +40,8 @@ def settings(tmp_path: Path) -> Settings:
     return Settings(data_dir=tmp_path, rates_dir=RATES_DIR, password=PASSWORD)
 
 
-def end_of_2026() -> date:
-    return date(2026, 12, 31)
+def end_of_2026() -> datetime:
+    return datetime(2026, 12, 31, 12, 0, tzinfo=ZoneInfo("Europe/Rome"))
 
 
 def client(tmp_path: Path) -> TestClient:
@@ -232,8 +233,8 @@ def test_ambiguous_thousands_dot_is_refused(tmp_path: Path) -> None:
 def test_year_page_marks_future_quarters_as_projection(tmp_path: Path) -> None:
     hired(tmp_path)
 
-    def mid_november() -> date:
-        return date(2026, 11, 15)
+    def mid_november() -> datetime:
+        return datetime(2026, 11, 15, 12, 0, tzinfo=ZoneInfo("Europe/Rome"))
 
     c = TestClient(create_app(settings(tmp_path), mid_november), headers=basic(PASSWORD))
     page = c.get("/anno/2026")
