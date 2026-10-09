@@ -51,6 +51,33 @@ non compaiono nella notizia INPS ma in due fonti secondarie concordi, e tornano 
 tabella (contributo ≈ 20% del convenzionale in ogni fascia); le ore INPS dei giorni di malattia
 sono le ore previste dall'orario in quei giorni.
 
+## Il pulsante di timbratura
+
+`/timbra` è una pagina con un solo grande pulsante, pensata per il telefono. Propone **Fine
+turno** se c'è una timbratura aperta; **Conferma turno HH:MM-HH:MM** se si è oltre la metà di un
+turno previsto non ancora registrato ed entro 30 minuti dalla sua fine; altrimenti **Inizio
+turno**. Una timbratura aperta di un giorno precedente chiede l'orario di uscita. Il link
+«registra a mano» porta al cartellino del mese.
+
+Nella pagina del mese:
+
+- **Cartellino**: le timbrature (cancellabili, inseribili a mano; oltre 8 h evidenziate). Alla
+  chiusura di una timbratura il tempo fuori orario (oltre 5 minuti) diventa un evento EXTRA
+  collegato; cancellando la timbratura sparisce anche quello.
+- **Da confermare**: i vuoti rispetto all'orario previsto (si contano dalla prima timbratura in
+  poi; ignorati i buchi fino a 5 minuti, le festività, i giorni di ferie o malattia). Per ognuno
+  tre pulsanti: *assente* (ASSENZA), *permesso* (PERMESSO), *mandata a casa* (MORA: pagata come
+  da orario, art. 1206 c.c., solo dentro l'orario). Un mese con vuoti da confermare o con una
+  timbratura aperta non si può finalizzare.
+
+**Installare sul telefono**: aprire `/timbra` e usare «Aggiungi a schermata Home»; si apre a
+schermo intero (`static/manifest.webmanifest`, nessun service worker). `/static` è pubblico,
+tutto il resto resta dietro HTTP Basic.
+
+**Da verificare** sul dispositivo: il telefono deve fidarsi della radice di step-ca, altrimenti
+niente installazione né HTTPS valido; tata è raggiungibile solo dalla LAN (da fuori, VPN); in
+modalità standalone HTTP Basic non deve richiedere la password a ogni avvio.
+
 ## Privacy: codice pubblico, dati mai
 
 Nomi, codici fiscali, ore e buste paga stanno in `TATA_DATA_DIR`, un volume fuori dal

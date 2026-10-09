@@ -21,9 +21,11 @@ src/tata/
   payslip.py    one month -> Payslip (lines, lordo, trattenute, netto, ratei)
   inps.py       fascia, quarterly contributions, due dates
   annual.py     tredicesima, TFR fund, ferie/permessi balances, deduction export
+  timbratura.py punch button: propose action, overruns (EXTRA), shortfalls, punch checks
   store.py      SQLite persistence (stdlib sqlite3, no ORM)
   pdf.py        HTML -> PDF via WeasyPrint
   web.py        FastAPI app factory, server-rendered Jinja2, HTTP Basic (one password)
+static/        PWA manifest + icons (public, outside HTTP Basic), no service worker
 rates/<year>.yaml  one file per year, every value with its source in a comment
 ```
 
@@ -48,6 +50,11 @@ Calc modules never touch the DB; the store never computes.
   classifications, highest wins (festivo/domenica 60% > straordinario notturno 50% > diurno 25%
   > 40–44h 10% > notturno ordinario 20%). Straordinario = beyond 8 h/day or 40 h/week,
   assigned to the chronologically LATEST minutes.
+- **Punches are the cartellino.** Closing a punch writes EXTRA events for time outside the schedule
+  (>5 min), linked to it (deleting the punch deletes them). Shortfalls are proposed, never
+  assumed: the employer confirms each as ASSENZA / PERMESSO / MORA (sent home, paid as scheduled,
+  art. 1206 c.c.). Derived from the first punch on; a month with shortfalls or an open punch
+  cannot be finalized.
 - **Validate on write.** Events and contract changes are checked against the calculators before
   they are stored; a stored inconsistency would brick every page that sums the year.
 - **Months close in order.** Finalizing requires the previous employed month finalized. The

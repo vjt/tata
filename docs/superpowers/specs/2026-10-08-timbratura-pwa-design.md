@@ -1,6 +1,6 @@
 # Timbratura: one-button PWA — design
 
-Status: awaiting review.
+Status: implemented (2026-10-09).
 
 ## 1. Goal
 
