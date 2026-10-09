@@ -69,3 +69,4 @@ table.lines, table.paga, table.ratei { width: 100%; border-collapse: collapse; m
 .punch form { width: 100%; max-width: 24rem; margin: 0; }
 button.big { width: 100%; min-height: 40vh; font-size: 2rem; font-weight: 700; border-radius: 1rem; }
 button.small { padding: .25rem .6rem; font-size: .85rem; }
+.long { color: var(--warn); }

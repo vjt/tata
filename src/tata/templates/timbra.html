@@ -25,5 +25,6 @@
 {% else %}
   <form method="post" action="/timbra/inizio"><button class="big">Inizio turno</button></form>
 {% endif %}
+  <a class="hint" href="/mese/{{ today.year }}/{{ today.month }}?giorno={{ today.isoformat() }}#cartellino">registra a mano</a>
 </section>
 {% endblock %}

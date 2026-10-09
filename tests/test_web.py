@@ -319,6 +319,7 @@ def test_stale_open_punch_asks_for_the_exit_time(tmp_path: Path) -> None:
     r = c.post("/timbra/fine", data={"alle": ""})
     assert r.status_code == 400 and "ora di uscita" in r.text
     assert c.post("/timbra/fine", data={"alle": "18:00"}).status_code == 303
+    assert "15:45-18:00" in c.get("/mese/2026/10").text
 
 
 def test_stop_in_the_same_minute_is_refused(tmp_path: Path) -> None:
@@ -354,6 +355,34 @@ def test_deleting_a_punch_removes_its_extra(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 10, 13, 20, 0))
     c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "19:00"})
     page = c.get("/mese/2026/10").text
+    assert "extra 18:00-19:00" in page
     punch_id = page.split('action="/timbrature/')[1].split("/")[0]
     assert c.post(f"/timbrature/{punch_id}/elimina").status_code == 303
     assert "extra 18:00-19:00" not in c.get("/mese/2026/10").text
+
+
+def test_finalize_refuses_an_open_punch(tmp_path: Path) -> None:
+    c, clock = punching(tmp_path, rome(2026, 10, 13, 15, 45))
+    c.post("/timbra/inizio")
+    clock.value = rome(2026, 10, 13, 18, 0)
+    r = c.post("/mese/2026/10/finalizza")
+    assert r.status_code == 400 and "timbratura aperta" in r.text
+    assert c.post("/timbra/fine", data={"alle": ""}).status_code == 303
+
+
+def test_punch_page_always_offers_manual_entry(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 12, 0))
+    assert "/mese/2026/10?giorno=2026-10-13#cartellino" in c.get("/timbra").text
+
+
+def test_punch_longer_than_eight_hours_is_highlighted(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 20, 0))
+    c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "07:00", "fine": "16:00"})
+    assert 'class="long"' in c.get("/mese/2026/10").text
+
+
+def test_punch_in_a_finalized_month_is_refused(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 20, 18, 30))
+    assert c.post("/mese/2026/10/finalizza").status_code == 303
+    r = c.post("/timbrature", data={"giorno": "2026-10-14", "inizio": "15:45", "fine": "18:00"})
+    assert r.status_code == 400 and "finalizzato" in r.text

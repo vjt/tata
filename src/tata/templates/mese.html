@@ -95,12 +95,12 @@
 </section>
 {% endif %}
 
-<section class="card">
+<section class="card" id="cartellino">
   <h2>Cartellino</h2>
   {% if punches %}
   <ul class="events">
   {% for p in punches %}
-    <li>
+    <li{% if p.end is not none and p.end - p.start > 480 %} class="long"{% endif %}>
       <span>{{ p.day | dmy }} · {% if p.end is none %}dalle {{ p.start | ore }} (aperta){% else %}{{ p.span() }}{% endif %}</span>
       {% if not final %}
       <form method="post" action="/timbrature/{{ p.id }}/elimina"><button class="link">elimina</button></form>

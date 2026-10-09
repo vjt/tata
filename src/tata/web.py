@@ -131,6 +131,8 @@ def create_app(settings: Settings, now: Clock) -> FastAPI:
 
     def save_punch(contract: Contract, draft: Punch) -> None:
         """Validate a closed punch and its EXTRA against everything stored, then write it."""
+        if draft.end is None:
+            raise ValueError("ora di uscita mancante")
         if not contract.employed_on(draft.day):
             raise ValueError(f"il {draft.day} è fuori dal rapporto di lavoro")
         others = [p for p in store.punches() if p.id != draft.id]
@@ -141,8 +143,6 @@ def create_app(settings: Settings, now: Clock) -> FastAPI:
         if draft.id == 0:
             store.add_punch(draft.day, draft.start, draft.end, extras)
         else:
-            if draft.end is None:
-                raise ValueError("ora di uscita mancante")
             store.close_punch(draft.id, draft.end, extras)
 
     # ---- cartellino
@@ -303,6 +303,10 @@ def create_app(settings: Settings, now: Clock) -> FastAPI:
         py, pm = (year - 1, 12) if month == 1 else (year, month - 1)
         if employed_months(contract, py, pm)[-1:] == [pm] and store.final_payslip(py, pm) is None:
             raise ValueError(f"finalizza prima {MESI[pm]} {py}: i mesi si chiudono in ordine")
+        if any(
+            p.end is None for p in store.punches() if (p.day.year, p.day.month) == (year, month)
+        ):
+            raise ValueError(f"c'è una timbratura aperta in {MESI[month]} {year}: chiudila prima")
         if pending(contract, year, month):
             raise ValueError(f"ci sono mancanze da confermare in {MESI[month]} {year}")
         store.finalize(compute_payslip(contract, store.events(), year, month, book.get(year)))
