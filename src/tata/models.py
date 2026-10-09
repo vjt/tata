@@ -161,3 +161,25 @@ class Event(Frozen):
         if self.kind in SPAN_ONLY and self.span is None:
             raise ValueError(f"{self.kind} richiede un orario")
         return self
+
+
+class Punch(Frozen):
+    """A cartellino entry: when the worker actually started and stopped. end None = still open."""
+
+    id: int
+    day: date
+    start: int
+    end: int | None
+
+    @model_validator(mode="after")
+    def _check(self) -> "Punch":
+        if not 0 <= self.start < MINUTES_PER_DAY:
+            raise ValueError(f"ora di ingresso non valida: {self.start}")
+        if self.end is not None:
+            self.span()  # same bounds as any span: start < end <= 24:00
+        return self
+
+    def span(self) -> Span:
+        if self.end is None:
+            raise ValueError(f"timbratura del {self.day} ancora aperta")
+        return Span(start=self.start, end=self.end)

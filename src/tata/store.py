@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from tata.models import Contract, Event, EventKind, Payment, Span, TfrAdvance
+from tata.models import Contract, Event, EventKind, Payment, Punch, Span, TfrAdvance
 from tata.payslip import Payslip
 
 SCHEMA = """
@@ -40,10 +40,31 @@ CREATE TABLE IF NOT EXISTS tfr_advance (
     day TEXT NOT NULL,
     amount TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS punch (
+    id INTEGER PRIMARY KEY,
+    day TEXT NOT NULL,
+    start INTEGER NOT NULL,
+    stop INTEGER
+);
+CREATE TABLE IF NOT EXISTS punch_event (
+    event_id INTEGER PRIMARY KEY,
+    punch_id INTEGER NOT NULL
+);
 """
 
 
 Row = tuple[object, ...]
+
+
+def _insert_extras(db: sqlite3.Connection, punch_id: int, day: date, extras: list[Span]) -> None:
+    for s in extras:
+        event_id = db.execute(
+            "INSERT INTO event (day, kind, span_start, span_end, note) VALUES (?, ?, ?, ?, ?)",
+            (day.isoformat(), EventKind.EXTRA.value, s.start, s.end, "timbratura"),
+        ).lastrowid
+        db.execute(
+            "INSERT INTO punch_event (event_id, punch_id) VALUES (?, ?)", (event_id, punch_id)
+        )
 
 
 class Store:
@@ -120,8 +141,63 @@ class Store:
             raise KeyError(event_id)
         day = date.fromisoformat(str(rows[0][0]))
         self._refuse_if_final(day)
-        self._write("DELETE FROM event WHERE id = ?", (event_id,))
+        with closing(sqlite3.connect(self._path)) as db, db:
+            db.execute("DELETE FROM punch_event WHERE event_id = ?", (event_id,))
+            db.execute("DELETE FROM event WHERE id = ?", (event_id,))
         return day
+
+    # ---- punches (cartellino)
+
+    def punches(self) -> list[Punch]:
+        rows = self._read("SELECT id, day, start, stop FROM punch ORDER BY day, start", ())
+        return [
+            Punch.model_validate({"id": id_, "day": day, "start": start, "end": stop})
+            for id_, day, start, stop in rows
+        ]
+
+    def add_punch(self, day: date, start: int, end: int | None, extras: list[Span]) -> Punch:
+        """Stores a punch and the EXTRA events it implies, in one transaction."""
+        self._refuse_if_final(day)
+        draft = Punch(id=0, day=day, start=start, end=end)  # validates first
+        with closing(sqlite3.connect(self._path)) as db, db:
+            new_id = db.execute(
+                "INSERT INTO punch (day, start, stop) VALUES (?, ?, ?)",
+                (day.isoformat(), start, end),
+            ).lastrowid
+            if new_id is None:
+                raise RuntimeError("sqlite non ha restituito un id")
+            _insert_extras(db, new_id, day, extras)
+        return draft.model_copy(update={"id": new_id})
+
+    def close_punch(self, punch_id: int, end: int, extras: list[Span]) -> Punch:
+        """Sets the exit time and stores the EXTRA events it implies, in one transaction."""
+        punch = self._punch(punch_id)
+        self._refuse_if_final(punch.day)
+        closed = Punch(id=punch.id, day=punch.day, start=punch.start, end=end)  # validates
+        with closing(sqlite3.connect(self._path)) as db, db:
+            db.execute("UPDATE punch SET stop = ? WHERE id = ?", (end, punch_id))
+            _insert_extras(db, punch_id, punch.day, extras)
+        return closed
+
+    def delete_punch(self, punch_id: int) -> date:
+        """Deletes the punch and the EXTRA events it generated; returns its day."""
+        punch = self._punch(punch_id)
+        self._refuse_if_final(punch.day)
+        with closing(sqlite3.connect(self._path)) as db, db:
+            db.execute(
+                "DELETE FROM event "
+                "WHERE id IN (SELECT event_id FROM punch_event WHERE punch_id = ?)",
+                (punch_id,),
+            )
+            db.execute("DELETE FROM punch_event WHERE punch_id = ?", (punch_id,))
+            db.execute("DELETE FROM punch WHERE id = ?", (punch_id,))
+        return punch.day
+
+    def _punch(self, punch_id: int) -> Punch:
+        found = [p for p in self.punches() if p.id == punch_id]
+        if not found:
+            raise KeyError(punch_id)
+        return found[0]
 
     # ---- finalized payslips
 

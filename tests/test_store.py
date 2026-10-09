@@ -74,3 +74,44 @@ def test_tfr_advances(tmp_path: Path) -> None:
     s = store(tmp_path)
     a = s.add_advance(date(2027, 5, 2), Decimal("100.00"))
     assert s.advances() == [a]
+
+
+def test_punch_close_stores_its_extras_and_delete_removes_them(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    day = date(2026, 10, 13)
+    opened = s.add_punch(day, 945, None, [])  # 15:45
+    assert s.punches() == [opened]
+    closed = s.close_punch(opened.id, 1110, [span("18:00-18:30")])  # 18:30
+    assert s.punches() == [closed]
+    assert closed.end == 1110
+    [extra] = s.events()
+    assert (extra.kind, extra.span, extra.note) == (
+        EventKind.EXTRA,
+        span("18:00-18:30"),
+        "timbratura",
+    )
+    assert s.delete_punch(closed.id) == day
+    assert s.punches() == []
+    assert s.events() == []
+
+
+def test_deleting_a_generated_event_unlinks_it(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    p = s.add_punch(date(2026, 10, 13), 945, 1110, [span("18:00-18:30")])
+    [extra] = s.events()
+    s.delete_event(extra.id)
+    s.delete_punch(p.id)  # must not fail on the dangling link
+    assert s.events() == []
+
+
+def test_punch_in_a_finalized_month_is_refused(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    worker = standard_contract(date(2026, 10, 12))
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026()))
+    with pytest.raises(ValueError, match="finalizzato"):
+        s.add_punch(date(2026, 10, 13), 480, None, [])
+
+
+def test_missing_punch_is_a_key_error(tmp_path: Path) -> None:
+    with pytest.raises(KeyError):
+        store(tmp_path).delete_punch(42)
