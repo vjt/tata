@@ -4,7 +4,15 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tata.models import EventKind, Punch
-from tata.timbratura import Shortfall, check_punches, overruns, shortfalls
+from tata.timbratura import (
+    Action,
+    Proposal,
+    Shortfall,
+    check_punches,
+    overruns,
+    propose,
+    shortfalls,
+)
 from tests.helpers import event, span, standard_contract
 
 WORKER = standard_contract(date(2026, 10, 12))
@@ -93,3 +101,42 @@ def test_check_punches_refuses_overlaps_and_two_open() -> None:
             [Punch(id=1, day=TUE, start=480, end=None), Punch(id=2, day=TUE, start=960, end=None)]
         )
     check_punches([punch(TUE, "08:00-08:45"), punch(TUE, "08:45-09:00")])  # touching is fine
+
+
+AFTERNOON = span("15:45-18:00")
+
+
+def tue_at(hh: int, mm: int) -> datetime:
+    return at(2026, 10, 13, hh, mm)
+
+
+def test_open_punch_always_proposes_fine() -> None:
+    yesterday = Punch(id=1, day=date(2026, 10, 12), start=945, end=None)
+    assert propose(WORKER, [yesterday], tue_at(3, 0)) == Proposal(action=Action.FINE, span=None)
+
+
+@pytest.mark.parametrize(
+    ("hh", "mm", "expected"),
+    [
+        (7, 50, Proposal(action=Action.INIZIO, span=None)),  # near the morning start
+        (8, 21, Proposal(action=Action.INIZIO, span=None)),  # before the 45-min span's midpoint
+        (8, 22, Proposal(action=Action.CONFERMA, span=span("08:00-08:45"))),  # (480+525)//2=502
+        (9, 15, Proposal(action=Action.CONFERMA, span=span("08:00-08:45"))),  # end + 30, inside
+        (9, 16, Proposal(action=Action.INIZIO, span=None)),  # end + 31, outside
+        (17, 30, Proposal(action=Action.CONFERMA, span=AFTERNOON)),  # end - 30, inside
+        (17, 29, Proposal(action=Action.INIZIO, span=None)),  # end - 31
+        (12, 0, Proposal(action=Action.INIZIO, span=None)),  # outside the schedule
+    ],
+)
+def test_proposal_by_time_of_day(hh: int, mm: int, expected: Proposal) -> None:
+    assert propose(WORKER, [], tue_at(hh, mm)) == expected
+
+
+def test_recorded_span_is_not_proposed_again() -> None:
+    done = punch(TUE, "15:50-18:00")
+    assert propose(WORKER, [done], tue_at(18, 5)) == Proposal(action=Action.INIZIO, span=None)
+
+
+def test_festivita_proposes_inizio() -> None:
+    immacolata = at(2026, 12, 8, 17, 50)
+    assert propose(WORKER, [], immacolata) == Proposal(action=Action.INIZIO, span=None)

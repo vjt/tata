@@ -1,6 +1,7 @@
 """Cartellino: what the punches imply for payroll, and what the button proposes."""
 
 from datetime import date, datetime, timedelta
+from enum import StrEnum
 from itertools import pairwise
 
 from tata.festivita import festivita
@@ -10,6 +11,17 @@ from tata.models import MINUTES_PER_DAY, Contract, Event, EventKind, Frozen, Pun
 TOLERANCE = 5  # minutes per gap or overrun ignored: nobody gets docked for parking
 WINDOW = 30  # minutes around a span's end in which the button proposes to confirm it
 COVERING = frozenset({EventKind.ASSENZA, EventKind.PERMESSO, EventKind.MORA})
+
+
+class Action(StrEnum):
+    INIZIO = "inizio"
+    FINE = "fine"
+    CONFERMA = "conferma"
+
+
+class Proposal(Frozen):
+    action: Action
+    span: Span | None  # the scheduled span to confirm (CONFERMA only)
 
 
 class Shortfall(Frozen):
@@ -70,6 +82,23 @@ def shortfalls(
         result += [Shortfall(day=day, span=s) for s in _runs(missing)]
         day += timedelta(days=1)
     return result
+
+
+def propose(contract: Contract, punches: list[Punch], now: datetime) -> Proposal:
+    """What the big button offers at `now` (spec §3)."""
+    if any(p.end is None for p in punches):
+        return Proposal(action=Action.FINE, span=None)
+    today, minute = now.date(), now.hour * 60 + now.minute
+    if contract.employed_on(today) and today not in _holidays(contract, today.year):
+        recorded: set[int] = set()
+        for p in punches:
+            if p.day == today:
+                recorded |= p.span().minutes()
+        for s in contract.orario[today.weekday()]:
+            near_end = max(s.end - WINDOW, (s.start + s.end) // 2) <= minute <= s.end + WINDOW
+            if near_end and not s.minutes() & recorded:
+                return Proposal(action=Action.CONFERMA, span=s)
+    return Proposal(action=Action.INIZIO, span=None)
 
 
 def _holidays(contract: Contract, year: int) -> frozenset[date]:
