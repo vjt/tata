@@ -61,7 +61,17 @@ def test_imports_at_module_top_only() -> None:
 
 def test_calculators_do_no_io() -> None:
     """Calc modules are pure: they never import the store, the web layer or sqlite."""
-    pure = {"festivita", "hours", "payslip", "inps", "annual", "models", "rates", "timbratura"}
+    pure = {
+        "festivita",
+        "hours",
+        "payslip",
+        "inps",
+        "annual",
+        "models",
+        "rates",
+        "timbratura",
+        "presenza",
+    }
     forbidden = {"tata.store", "tata.web", "tata.pdf", "sqlite3", "fastapi"}
     offenders = [
         f"{path.name} imports {name}"

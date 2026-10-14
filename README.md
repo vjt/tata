@@ -72,6 +72,24 @@ Nella pagina del mese:
   da orario, art. 1206 c.c., solo dentro l'orario). Un mese con vuoti da confermare o con una
   timbratura aperta non si può finalizzare.
 
+**Presenza dal wifi** (facoltativa): `/presenza` legge da Home Assistant la storia del
+`device_tracker` del telefono della lavoratrice (ad esempio quello di
+eve/openwrt-presence, che segna `not_home` 120 secondi dopo l'ultimo
+aggancio) e propone le timbrature:
+
+- **mattina** (arrivo prima delle 12): dall'aggancio alla wifi fino all'uscita + 30 minuti
+  (il tragitto per portare i bambini a scuola);
+- **pomeriggio**: dalle 16:00 (uscita da scuola), o dall'arrivo se è prima, fino all'uscita;
+  un secondo rientro nel pomeriggio conta dal suo arrivo.
+
+Niente viene registrato da solo: ogni proposta ha il suo pulsante *registra*, che passa dalla
+stessa strada della timbratura a mano (validazione, EXTRA, vuoti da confermare). I riavvii di
+Home Assistant (`unavailable`) non contano come uscite; una permanenza senza arrivo o uscita
+nota (telefono già «in casa» a mezzanotte, uscita durante un riavvio) va registrata a mano.
+In fondo, le ore timbrate per settimana. Si attiva con `TATA_HA_URL`, `TATA_HA_TOKEN` e
+`TATA_HA_ENTITY` (tutte e tre o nessuna). Il tracciamento del telefono di una dipendente
+richiede un'informativa scritta.
+
 **Installare sul telefono**: aprire `/timbra` e usare «Aggiungi a schermata Home»; si apre a
 schermo intero (`static/manifest.webmanifest`, nessun service worker). `/static` è pubblico,
 tutto il resto resta dietro HTTP Basic.

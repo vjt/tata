@@ -1,11 +1,13 @@
 import base64
 from datetime import date, datetime
 from pathlib import Path
+from urllib.error import URLError
 from zoneinfo import ZoneInfo
 
 import yaml
 from fastapi.testclient import TestClient
 
+from tata.presenza import Change, History, Seen
 from tata.web import Settings, create_app
 from tests.helpers import RATES_DIR
 
@@ -45,7 +47,7 @@ def end_of_2026() -> datetime:
 
 
 def client(tmp_path: Path) -> TestClient:
-    app = create_app(settings(tmp_path), end_of_2026)
+    app = create_app(settings(tmp_path), end_of_2026, None)
     return TestClient(app, headers=basic(PASSWORD), follow_redirects=False)
 
 
@@ -56,7 +58,7 @@ def hired(tmp_path: Path) -> TestClient:
 
 
 def test_wrong_password_is_refused(tmp_path: Path) -> None:
-    app = create_app(settings(tmp_path), end_of_2026)
+    app = create_app(settings(tmp_path), end_of_2026, None)
     assert TestClient(app, headers=basic("sbagliata")).get("/contratto").status_code == 401
     assert TestClient(app).get("/contratto").status_code == 401
 
@@ -236,7 +238,7 @@ def test_year_page_marks_future_quarters_as_projection(tmp_path: Path) -> None:
     def mid_november() -> datetime:
         return datetime(2026, 11, 15, 12, 0, tzinfo=ZoneInfo("Europe/Rome"))
 
-    c = TestClient(create_app(settings(tmp_path), mid_november), headers=basic(PASSWORD))
+    c = TestClient(create_app(settings(tmp_path), mid_november, None), headers=basic(PASSWORD))
     page = c.get("/anno/2026")
     assert "stima" in page.text
     # TFR through November only: (398,70 + 580,33) / 13,5 = 72,52
@@ -260,7 +262,7 @@ class FakeClock:
 def punching(tmp_path: Path, start: datetime) -> tuple[TestClient, FakeClock]:
     clock = FakeClock(start)
     c = TestClient(
-        create_app(settings(tmp_path), clock), headers=basic(PASSWORD), follow_redirects=False
+        create_app(settings(tmp_path), clock, None), headers=basic(PASSWORD), follow_redirects=False
     )
     assert c.post("/contratto", data=CONTRACT_FORM).status_code == 303
     return c, clock
@@ -389,7 +391,7 @@ def test_punch_in_a_finalized_month_is_refused(tmp_path: Path) -> None:
 
 
 def test_manifest_is_public_and_linked(tmp_path: Path) -> None:
-    app = create_app(settings(tmp_path), end_of_2026)
+    app = create_app(settings(tmp_path), end_of_2026, None)
     # Browsers fetch the manifest and icons without credentials: /static must stay public.
     r = TestClient(app).get("/static/manifest.webmanifest")
     assert r.status_code == 200
@@ -439,3 +441,111 @@ def test_exit_later_than_now_is_refused(tmp_path: Path) -> None:
     r = c.post("/timbra/fine", data={"alle": "18:00"})  # it is 15:45
     assert r.status_code == 400 and "futuro" in r.text
     assert "Fine turno" in c.get("/timbra").text  # still open, nothing stored
+
+
+class FakeHomeAssistant:
+    """Records what the presence page asks for and answers with a fixed history."""
+
+    def __init__(self, history: History | None) -> None:
+        self.history = history
+        self.asked: list[tuple[datetime, datetime]] = []
+
+    def __call__(self, start: datetime, end: datetime) -> History:
+        self.asked.append((start, end))
+        if self.history is None:
+            raise URLError("connection refused")
+        return self.history
+
+
+# Thu 15/10: home 07:55, not_home 08:20 (left 08:18); home 16:31, not_home 18:05 (left 18:03).
+A_DAY = History(
+    initial=Seen.AWAY,
+    changes=[
+        Change(at=rome(2026, 10, 15, 7, 55), seen=Seen.HOME),
+        Change(at=rome(2026, 10, 15, 8, 20), seen=Seen.AWAY),
+        Change(at=rome(2026, 10, 15, 16, 31), seen=Seen.HOME),
+        Change(at=rome(2026, 10, 15, 18, 5), seen=Seen.AWAY),
+    ],
+)
+
+
+def presence_client(tmp_path: Path, clock: datetime, ha: FakeHomeAssistant) -> TestClient:
+    c = TestClient(
+        create_app(settings(tmp_path), FakeClock(clock), ha),
+        headers=basic(PASSWORD),
+        follow_redirects=False,
+    )
+    assert c.post("/contratto", data=CONTRACT_FORM).status_code == 303
+    return c
+
+
+def test_presence_page_proposes_and_records_on_confirmation(tmp_path: Path) -> None:
+    ha = FakeHomeAssistant(A_DAY)
+    c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), ha)
+    page = c.get("/presenza/2026/10").text
+    # Morning: 07:55 to 08:18 + 30 = 08:48. Afternoon: 16:00 (d'ufficio) to 18:03.
+    assert "07:55-08:48" in page
+    assert "16:00-18:03" in page
+    assert ha.asked == [(rome(2026, 10, 1, 0, 0), rome(2026, 10, 15, 19, 0))]
+    # Nothing is recorded until confirmed.
+    assert "07:55-08:48" not in c.get("/mese/2026/10").text.split('id="cartellino"')[1]
+    for inizio, fine in (("07:55", "08:48"), ("16:00", "18:03")):
+        r = c.post(
+            "/timbrature",
+            data={
+                "giorno": "2026-10-15",
+                "inizio": inizio,
+                "fine": fine,
+                "torna": "/presenza/2026/10",
+            },
+        )
+        assert r.headers["location"] == "/presenza/2026/10"
+    page = c.get("/presenza/2026/10").text
+    assert page.count("registrata") == 2
+    # Week of 12/10: 53 min + 2 h 03 min = 2:56.
+    assert "2:56" in page
+    assert "07:55-08:48" in c.get("/mese/2026/10").text.split('id="cartellino"')[1]
+
+
+def test_presence_proposal_ending_after_now_cannot_be_confirmed_yet(tmp_path: Path) -> None:
+    ha = FakeHomeAssistant(A_DAY)
+    page = presence_client(tmp_path, rome(2026, 10, 15, 8, 30), ha).get("/presenza/2026/10")
+    assert "07:55-08:48" in page.text
+    assert "dalle 8:48" in page.text
+    assert 'value="8:48"' not in page.text
+
+
+def test_presence_page_without_home_assistant(tmp_path: Path) -> None:
+    c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), FakeHomeAssistant(None))
+    r = c.get("/presenza/2026/10")
+    assert r.status_code == 502
+    assert "Home Assistant" in r.text
+
+
+def test_presence_not_configured(tmp_path: Path) -> None:
+    c = TestClient(create_app(settings(tmp_path), end_of_2026, None), headers=basic(PASSWORD))
+    assert c.post("/contratto", data=CONTRACT_FORM).status_code == 200
+    r = c.get("/presenza/2026/10")
+    assert r.status_code == 400
+    assert "TATA_HA_URL" in r.text
+
+
+def test_presence_future_month_asks_nothing(tmp_path: Path) -> None:
+    ha = FakeHomeAssistant(A_DAY)
+    c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), ha)
+    assert c.get("/presenza/2026/11").status_code == 200
+    assert ha.asked == []
+
+
+def test_return_address_must_be_a_presence_page(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 15, 19, 0))
+    r = c.post(
+        "/timbrature",
+        data={
+            "giorno": "2026-10-14",
+            "inizio": "16:00",
+            "fine": "18:00",
+            "torna": "https://evil.example/",
+        },
+    )
+    assert r.headers["location"] == "/mese/2026/10"

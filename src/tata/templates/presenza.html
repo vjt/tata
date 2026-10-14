@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}presenza {{ mese }} {{ year }} · tata{% endblock %}
+{% block content %}
+<h1>Presenza wifi · {{ mese }} {{ year }}</h1>
+
+<section class="card">
+  <h2>Proposte dal wifi</h2>
+  <p class="hint">Mattina: dall'aggancio alla wifi fino all'uscita + 30 minuti. Pomeriggio: dalle 16:00
+    (o dall'arrivo, se prima) fino all'uscita. Niente viene registrato finché non confermi.</p>
+  {% if days %}
+  <ul class="events">
+  {% for d in days %}
+    <li>
+      <span>{{ d.day | dmy }} · wifi:
+        {% for s in d.sessions %}
+          {% if s.arrival is none %}già in casa{% else %}{{ s.arrival | ore }}{% endif %}
+          →
+          {% if s.lost %}uscita ignota (Home Assistant giù){% elif s.departure is none %}in casa{% else %}{{ s.departure | ore }}{% endif %}{% if not loop.last %};{% endif %}
+        {% endfor %}
+      </span>
+      <span class="actions">
+      {% for p in d.proposals %}
+        {% if (d.day, p) in recorded %}
+          {{ p }} registrata
+        {% elif d.day == today and p.end > minute %}
+          {{ p }} (confermabile dalle {{ p.end | ore }})
+        {% else %}
+          <form method="post" action="/timbrature">
+            <input type="hidden" name="giorno" value="{{ d.day.isoformat() }}">
+            <input type="hidden" name="inizio" value="{{ p.start | ore }}">
+            <input type="hidden" name="fine" value="{{ p.end | ore }}">
+            <input type="hidden" name="torna" value="{{ here }}">
+            <button class="small">registra {{ p }}</button>
+          </form>
+        {% endif %}
+      {% else %}
+        da registrare a mano
+      {% endfor %}
+      </span>
+    </li>
+  {% endfor %}
+  </ul>
+  {% else %}
+  <p>Nessun passaggio dalla wifi in questo mese.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Ore timbrate</h2>
+  {% if weeks %}
+  <ul class="events">
+  {% for monday, minutes in weeks %}
+    <li><span>settimana dal {{ monday | dmy }}</span><span>{{ minutes | ore }}</span></li>
+  {% endfor %}
+  </ul>
+  {% else %}
+  <p>Nessuna timbratura chiusa in questo mese.</p>
+  {% endif %}
+  <p><a href="/mese/{{ year }}/{{ month }}#cartellino">cartellino del mese</a></p>
+</section>
+{% endblock %}

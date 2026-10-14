@@ -8,10 +8,11 @@ import os
 import re
 import secrets
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated
+from urllib.error import URLError
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -31,11 +32,13 @@ from tata.annual import (
     year_payslips,
 )
 from tata.festivita import festivita
+from tata.homeassistant import fetch_history
 from tata.hours import month_work, range_days
 from tata.inps import quarter_contributions, quarter_months
 from tata.models import Contract, Event, EventKind, Frozen, Livello, Payment, Punch, Span
 from tata.payslip import Payslip, compute_payslip
 from tata.pdf import render_pdf
+from tata.presenza import History, presence_days
 from tata.rates import RatesBook
 from tata.store import Store
 from tata.timbratura import Action, Shortfall, check_punches, overruns, propose, shortfalls
@@ -54,6 +57,9 @@ class Settings(Frozen):
 
 
 Clock = Callable[[], datetime]
+PresenceSource = Callable[[datetime, datetime], History]  # wifi presence from start to end
+HA_VARS = ("TATA_HA_URL", "TATA_HA_TOKEN", "TATA_HA_ENTITY")
+RETURN_TO = re.compile(r"/presenza/\d{4}/\d{1,2}")
 
 
 def rome_now() -> datetime:
@@ -61,7 +67,13 @@ def rome_now() -> datetime:
 
 
 def app_from_env() -> FastAPI:
-    """The only place that reads the environment (uvicorn --factory entry point)."""
+    """The only place that reads the environment (uvicorn --factory entry point).
+
+    Wifi presence is optional: all three TATA_HA_* variables, or none.
+    """
+    ha = [os.environ.get(name, "") for name in HA_VARS]
+    if any(ha) and not all(ha):
+        raise ValueError(f"presenza wifi: servono tutte o nessuna tra {', '.join(HA_VARS)}")
     return create_app(
         Settings(
             data_dir=Path(os.environ["TATA_DATA_DIR"]),
@@ -69,10 +81,18 @@ def app_from_env() -> FastAPI:
             password=os.environ["TATA_PASSWORD"],
         ),
         rome_now,
+        _home_assistant(*ha) if all(ha) else None,
     )
 
 
-def create_app(settings: Settings, now: Clock) -> FastAPI:
+def _home_assistant(base: str, token: str, entity: str) -> PresenceSource:
+    def history(start: datetime, end: datetime) -> History:
+        return fetch_history(base, token, entity, start, end)
+
+    return history
+
+
+def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) -> FastAPI:
     if not settings.password:
         raise ValueError("TATA_PASSWORD vuota")
     store = Store(settings.data_dir / "tata.sqlite")
@@ -93,6 +113,16 @@ def create_app(settings: Settings, now: Clock) -> FastAPI:
         """Bad input or a missing rates file: show the reason, never a blank 500."""
         return templates.TemplateResponse(
             request, "errore.html", {"message": str(exc)}, status_code=400
+        )
+
+    @app.exception_handler(URLError)
+    @app.exception_handler(TimeoutError)
+    async def unreachable(request: Request, exc: Exception) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request,
+            "errore.html",
+            {"message": f"Home Assistant non raggiungibile: {exc}"},
+            status_code=502,
         )
 
     @app.exception_handler(KeyError)
@@ -343,6 +373,9 @@ def create_app(settings: Settings, now: Clock) -> FastAPI:
         day = date.fromisoformat(_field(form, "giorno"))
         s = Span.parse(f"{_field(form, 'inizio')}-{_field(form, 'fine')}")
         save_punch(contract, Punch(id=0, day=day, start=s.start, end=s.end))
+        back = form.get("torna")
+        if isinstance(back, str) and RETURN_TO.fullmatch(back):
+            return RedirectResponse(back, status_code=303)
         if day == now().date():
             return RedirectResponse("/timbra", status_code=303)
         return RedirectResponse(f"/mese/{day.year}/{day.month}", status_code=303)
@@ -351,6 +384,52 @@ def create_app(settings: Settings, now: Clock) -> FastAPI:
     def delete_punch(punch_id: int) -> RedirectResponse:
         day = store.delete_punch(punch_id)
         return RedirectResponse(f"/mese/{day.year}/{day.month}", status_code=303)
+
+    # ---- wifi presence
+
+    @app.get("/presenza")
+    def this_month_presence() -> RedirectResponse:
+        moment = now()
+        return RedirectResponse(f"/presenza/{moment.year}/{moment.month}", status_code=303)
+
+    @app.get("/presenza/{year}/{month}", response_class=HTMLResponse)
+    def presence_page(request: Request, year: int, month: int) -> HTMLResponse:
+        """Wifi sessions and the punches they suggest; the employer confirms each one."""
+        require_contract()
+        if presence is None:
+            raise ValueError(f"presenza wifi non configurata: imposta {', '.join(HA_VARS)}")
+        moment = now()
+        first = date(year, month, 1)
+        last = min(date(year, month, calendar.monthrange(year, month)[1]), moment.date())
+        days = []
+        if first <= last:
+            start = datetime.combine(first, time(0), ROME)
+            end = min(moment, datetime.combine(last + timedelta(days=1), time(0), ROME))
+            days = [d for d in presence_days(presence(start, end), first, last) if d.sessions]
+        punches = [
+            p
+            for p in store.punches()
+            if (p.day.year, p.day.month) == (year, month) and p.end is not None
+        ]
+        weeks: dict[date, int] = {}
+        for p in punches:
+            monday = p.day - timedelta(days=p.day.weekday())
+            weeks[monday] = weeks.get(monday, 0) + p.span().end - p.span().start
+        return templates.TemplateResponse(
+            request,
+            "presenza.html",
+            {
+                "year": year,
+                "month": month,
+                "mese": MESI[month],
+                "days": days,
+                "recorded": {(p.day, p.span()) for p in punches},
+                "today": moment.date(),
+                "minute": minute_of(moment),
+                "weeks": sorted(weeks.items()),
+                "here": f"/presenza/{year}/{month}",
+            },
+        )
 
     # ---- events
 

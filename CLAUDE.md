@@ -22,6 +22,8 @@ src/tata/
   inps.py       fascia, quarterly contributions, due dates
   annual.py     tredicesima, TFR fund, ferie/permessi balances, deduction export
   timbratura.py punch button: propose action, overruns (EXTRA), shortfalls, punch checks
+  presenza.py   wifi presence (eve via Home Assistant history) -> proposed punches
+  homeassistant.py  HA REST client: a device tracker's history (the only network I/O)
   store.py      SQLite persistence (stdlib sqlite3, no ORM)
   pdf.py        HTML -> PDF via WeasyPrint
   web.py        FastAPI app factory, server-rendered Jinja2, HTTP Basic (one password)
@@ -55,6 +57,11 @@ Calc modules never touch the DB; the store never computes.
   assumed: the employer confirms each as ASSENZA / PERMESSO / MORA (sent home, paid as scheduled,
   art. 1206 c.c.). Derived from the first punch on; a month with shortfalls or an open punch
   cannot be finalized.
+- **Wifi presence proposes, never records.** `/presenza` reads the worker's phone tracker from
+  Home Assistant (eve: `not_home` comes 120 s after the last sighting) and proposes punches:
+  morning = join to departure + 30 min, afternoon = 16:00 (or the earlier arrival) to departure.
+  Each is confirmed through the ordinary punch path. Restart blips (`unavailable`) are not
+  departures; a stay with an unknown arrival or end is never proposed.
 - **Validate on write.** Events and contract changes are checked against the calculators before
   they are stored; a stored inconsistency would brick every page that sums the year.
 - **Months close in order.** Finalizing requires the previous employed month finalized. The
