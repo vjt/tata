@@ -15,10 +15,12 @@
   <a class="brand" href="/"><img src="/static/logo.png" alt="" width="32" height="32">tata</a>
   <nav>
     <a href="/timbra">timbra</a>
-    <a href="/presenza">presenza</a>
+    {% if not request.state.worker %}<a href="/presenza">presenza</a>{% endif %}
     <a href="/">mese</a>
+    {% if not request.state.worker %}
     <a href="/anno">anno</a>
     <a href="/contratto">contratto</a>
+    {% endif %}
   </nav>
 </header>
 <main>

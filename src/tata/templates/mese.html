@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ mese }} {{ year }} · tata{% endblock %}
 {% block content %}
+{% set employer = not request.state.worker %}
 <div class="monthnav">
   <a href="{{ prev }}">‹</a>
   <h1>{{ mese }} {{ year }}</h1>
@@ -32,7 +33,7 @@
   </tbody>
 </table>
 
-{% if not final %}
+{% if employer and not final %}
 <form id="evento" method="post" action="/eventi" class="card form">
   <h2>Registra un'eccezione</h2>
   <label>Tipo
@@ -60,7 +61,7 @@
   {% for e in events %}
     <li>
       <span>{{ e.day | dmy }} · {{ e.kind }}{% if e.span %} {{ e.span }}{% endif %}{% if e.note %} · {{ e.note }}{% endif %}</span>
-      {% if not final %}
+      {% if employer and not final %}
       <form method="post" action="/eventi/{{ e.id }}/elimina"><button class="link">elimina</button></form>
       {% endif %}
     </li>
@@ -77,7 +78,7 @@
     <li>
       <span>{{ s.day | dmy }} · {{ s.span }} non timbrato</span>
       <span class="actions">
-      {% for kind, label in [("assenza", "assente"), ("permesso", "permesso"), ("mora", "mandata a casa")] %}
+      {% if employer %}{% for kind, label in [("assenza", "assente"), ("permesso", "permesso"), ("mora", "mandata a casa")] %}
         <form method="post" action="/eventi">
           <input type="hidden" name="kind" value="{{ kind }}">
           <input type="hidden" name="dal" value="{{ s.day.isoformat() }}">
@@ -87,7 +88,7 @@
           <input type="hidden" name="note" value="">
           <button class="small">{{ label }}</button>
         </form>
-      {% endfor %}
+      {% endfor %}{% endif %}
       </span>
     </li>
   {% endfor %}
@@ -102,7 +103,7 @@
   {% for p in punches %}
     <li{% if p.end is not none and p.end - p.start > 480 %} class="long"{% endif %}>
       <span>{{ p.day | dmy }} · {% if p.end is none %}dalle {{ p.start | ore }} (aperta){% else %}{{ p.span() }}{% endif %}</span>
-      {% if not final %}
+      {% if employer and not final %}
       <form method="post" action="/timbrature/{{ p.id }}/elimina"><button class="link">elimina</button></form>
       {% endif %}
     </li>
@@ -124,7 +125,7 @@
   {% include "_prospetto.html" %}
   <p class="actions">
     <a class="button" href="/mese/{{ year }}/{{ month }}/prospetto.pdf">PDF</a>
-    {% if not final %}
+    {% if employer and not final %}
     <form method="post" action="/mese/{{ year }}/{{ month }}/finalizza"><button>Finalizza il mese</button></form>
     {% endif %}
   </p>

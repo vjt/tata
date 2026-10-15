@@ -153,7 +153,9 @@ docker compose up -d --build
 
   con `${TATA_CERTS}` montato su `/root/tata` nel pusher.
 - **DNS**: un record A per il nome host che punta a `${TATA_IP}`.
-- **Accesso**: HTTP Basic, nome utente qualsiasi, password da `TATA_PASSWORD`.
+- **Accesso**: HTTP Basic, nome utente qualsiasi, password da `TATA_PASSWORD`. Con
+  `TATA_WORKER_PASSWORD` (facoltativa, diversa) la lavoratrice entra in sola lettura sul mese e
+  sul prospetto, e timbra (pulsante o a mano); tutto il resto le risponde 403.
 
 ## Ogni gennaio
 

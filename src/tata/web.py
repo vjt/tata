@@ -61,13 +61,18 @@ ROME = ZoneInfo("Europe/Rome")
 class Settings(Frozen):
     data_dir: Path
     rates_dir: Path
-    password: str
+    password: str  # the employer: everything
+    worker_password: str  # the worker: reads the month, punches; empty = no worker access
 
 
 Clock = Callable[[], datetime]
 PresenceSource = Callable[[datetime, datetime], History]  # wifi presence from start to end
 HA_VARS = ("TATA_HA_URL", "TATA_HA_TOKEN", "TATA_HA_ENTITY")
 RETURN_TO = re.compile(r"/presenza/\d{4}/\d{1,2}")
+WORKER_ROUTES = {  # all the worker may do: read the month and its payslip, punch, by hand too
+    "GET": re.compile(r"/|/timbra|/mese/\d{4}/\d{1,2}(/prospetto\.pdf)?"),
+    "POST": re.compile(r"/timbra/(inizio|fine)|/timbrature"),
+}
 
 
 def rome_now() -> datetime:
@@ -77,7 +82,8 @@ def rome_now() -> datetime:
 def app_from_env() -> FastAPI:
     """The only place that reads the environment (uvicorn --factory entry point).
 
-    Wifi presence is optional: all three TATA_HA_* variables, or none.
+    Wifi presence is optional: all three TATA_HA_* variables, or none. So is the worker's
+    access, TATA_WORKER_PASSWORD.
     """
     ha = [os.environ.get(name, "") for name in HA_VARS]
     if any(ha) and not all(ha):
@@ -87,6 +93,7 @@ def app_from_env() -> FastAPI:
             data_dir=Path(os.environ["TATA_DATA_DIR"]),
             rates_dir=Path(os.environ["TATA_RATES_DIR"]),
             password=os.environ["TATA_PASSWORD"],
+            worker_password=os.environ.get("TATA_WORKER_PASSWORD", ""),
         ),
         rome_now,
         _home_assistant(*ha) if all(ha) else None,
@@ -103,14 +110,30 @@ def _home_assistant(base: str, token: str, entity: str) -> PresenceSource:
 def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) -> FastAPI:
     if not settings.password:
         raise ValueError("TATA_PASSWORD vuota")
+    if settings.worker_password == settings.password:
+        raise ValueError("TATA_WORKER_PASSWORD deve essere diversa da TATA_PASSWORD")
     store = Store(settings.data_dir / "tata.sqlite")
     book = RatesBook(settings.rates_dir)
     templates = _templates()
     basic = HTTPBasic()
 
-    def auth(credentials: Annotated[HTTPBasicCredentials, Depends(basic)]) -> None:
-        if not secrets.compare_digest(credentials.password.encode(), settings.password.encode()):
-            raise HTTPException(401, headers={"WWW-Authenticate": "Basic"})
+    def auth(
+        request: Request, credentials: Annotated[HTTPBasicCredentials, Depends(basic)]
+    ) -> None:
+        """Who is asking: the employer, the worker (only WORKER_ROUTES, 403 elsewhere), or 401."""
+        given = credentials.password.encode()
+        request.state.worker = False
+        if secrets.compare_digest(given, settings.password.encode()):
+            return
+        if settings.worker_password and secrets.compare_digest(
+            given, settings.worker_password.encode()
+        ):
+            request.state.worker = True
+            allowed = WORKER_ROUTES.get(request.method)
+            if allowed is None or not allowed.fullmatch(request.url.path):
+                raise HTTPException(403)
+            return
+        raise HTTPException(401, headers={"WWW-Authenticate": "Basic"})
 
     app = FastAPI(dependencies=[Depends(auth)], docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")

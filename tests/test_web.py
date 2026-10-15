@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.error import URLError
 from zoneinfo import ZoneInfo
 
+import pytest
 import yaml
 from fastapi.testclient import TestClient
 
@@ -38,8 +39,13 @@ def basic(password: str) -> dict[str, str]:
     return {"Authorization": f"Basic {token}"}
 
 
+WORKER = "pass-lavoratrice"
+
+
 def settings(tmp_path: Path) -> Settings:
-    return Settings(data_dir=tmp_path, rates_dir=RATES_DIR, password=PASSWORD)
+    return Settings(
+        data_dir=tmp_path, rates_dir=RATES_DIR, password=PASSWORD, worker_password=WORKER
+    )
 
 
 def end_of_2026() -> datetime:
@@ -577,3 +583,52 @@ def test_return_address_must_be_a_presence_page(tmp_path: Path) -> None:
         },
     )
     assert r.headers["location"] == "/mese/2026/10"
+
+
+def test_worker_reads_the_month_and_punches_but_nothing_else(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 18, 30))
+    w = TestClient(c.app, headers=basic(WORKER), follow_redirects=False)
+    assert (
+        w.post(
+            "/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"}
+        ).status_code
+        == 303
+    )
+    page = w.get("/mese/2026/10").text
+    assert "15:45-18:00" in page and "Prospetto paga" in page
+    # No employer controls on her page: events, confirmations, deletions, finalize, nav.
+    for control in (
+        'action="/eventi"',
+        "/elimina",
+        "/finalizza",
+        'href="/contratto"',
+        'href="/presenza"',
+    ):
+        assert control not in page
+    assert w.get("/mese/2026/10/prospetto.pdf").status_code == 200
+    assert w.get("/timbra").status_code == 200
+    forbidden = [
+        ("GET", "/contratto"),
+        ("GET", "/anno/2026"),
+        ("GET", "/anno/2026/deduzioni.yaml"),
+        ("GET", "/presenza/2026/10"),
+        ("POST", "/eventi"),
+        ("POST", "/mese/2026/10/finalizza"),
+        ("POST", "/timbrature/1/elimina"),
+        ("POST", "/contratto"),
+    ]
+    for method, path in forbidden:
+        assert w.request(method, path).status_code == 403, path
+    # The employer still sees everything.
+    assert 'action="/eventi"' in c.get("/mese/2026/10").text
+
+
+def test_worker_password_must_differ_and_be_set_to_open(tmp_path: Path) -> None:
+    same = Settings(
+        data_dir=tmp_path, rates_dir=RATES_DIR, password=PASSWORD, worker_password=PASSWORD
+    )
+    with pytest.raises(ValueError, match="diversa"):
+        create_app(same, end_of_2026, None)
+    off = Settings(data_dir=tmp_path, rates_dir=RATES_DIR, password=PASSWORD, worker_password="")
+    anyone = TestClient(create_app(off, end_of_2026, None), headers=basic(""))
+    assert anyone.get("/mese/2026/10").status_code == 401
