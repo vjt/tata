@@ -285,6 +285,8 @@ def test_rimborso_is_paid_on_top_of_the_netto_and_nothing_else() -> None:
         plain.netto,
     )
     assert slip.da_pagare == plain.netto + Decimal("16.08")
+    assert slip.lordo_da_pagare == plain.lordo + Decimal("16.08")
+    assert plain.lordo_da_pagare == plain.lordo
     assert plain.da_pagare == plain.netto
 
 

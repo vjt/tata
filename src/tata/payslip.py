@@ -56,6 +56,7 @@ class Payslip(Frozen):
     netto: Decimal  # lordo - trattenute: the retribuzione, what the attestazione sums
     rimborso: Line | None  # trasferte, not income (art. 51 c.5 TUIR): outside the lordo
     da_pagare: Decimal  # netto + rimborso
+    lordo_da_pagare: Decimal  # lordo + rimborso: what is owed before the trattenute
     tredicesima_maturata: Decimal  # this calendar year, up to this month
     ferie_maturate: Decimal  # days since hire, up to this month
     ferie_godute: Decimal
@@ -159,6 +160,7 @@ def compute_payslip(
         - trattenuta_inps
         - trattenuta_cassa
         + (rimborso.importo if rimborso is not None else 0),
+        lordo_da_pagare=lordo + (rimborso.importo if rimborso is not None else 0),
         tredicesima_maturata=tredicesima,
         ferie_maturate=euro(ferie_maturate),
         ferie_godute=ferie_godute,
