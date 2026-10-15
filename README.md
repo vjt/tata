@@ -66,11 +66,11 @@ Nella pagina del mese:
   collegato; cancellando la timbratura sparisce anche quello. Cambiando l'orario nel contratto
   gli EXTRA delle timbrature dei mesi non finalizzati vengono ricalcolati. Non si registrano
   timbrature nel futuro (uscita dopo l'ora attuale).
-- **Si paga il timbrato**: dalla prima timbratura in poi il prospetto conta solo le ore
-  timbrate (più festività, ferie, permessi, malattia): i giorni ancora da venire e i vuoti non
-  confermati non sono pagati.
-- **Da confermare**: i vuoti rispetto all'orario previsto (si contano dalla prima timbratura in
-  poi; ignorati i buchi fino a 5 minuti, le festività, i giorni di ferie o malattia). Per ognuno
+- **Si paga il timbrato**: il prospetto (sezione *Lavorato*) conta solo le ore timbrate, più
+  festività, ferie, permessi, malattia e mandata a casa confermati. Niente timbrature, niente
+  paga: i giorni ancora da venire e i vuoti non confermati non sono pagati. La sezione
+  *Pianificato* mostra l'orario del contratto come se fosse lavorato, solo per confronto.
+- **Da confermare**: i vuoti rispetto all'orario previsto (si contano dall'assunzione; ignorati i buchi fino a 5 minuti, le festività, i giorni di ferie o malattia). Per ognuno
   tre pulsanti: *assente* (ASSENZA), *permesso* (PERMESSO, pagato), *mandata a casa* (MORA:
   pagata come da orario, art. 1206 c.c., solo dentro l'orario). Un mese non ancora finito, con
   vuoti da confermare o con una timbratura aperta non si può finalizzare.

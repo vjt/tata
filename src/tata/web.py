@@ -342,6 +342,8 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         events = store.events()
         rates = book.get(year)
         slip = source(contract)(year, month)
+        final = store.final_payslip(year, month) is not None
+        planned = None if final else compute_payslip(contract, events, year, month, rates)
         paid = paid_events(contract, year, month)
         work = {d.day: d for d in month_work(contract, paid, year, month, rates)}
         weeks = calendar.Calendar().monthdatescalendar(year, month)
@@ -362,11 +364,12 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "events": month_events,
                 "kinds": list(EventKind),
                 "slip": slip,
+                "planned": planned,
                 "punches": [
                     p for p in store.punches() if (p.day.year, p.day.month) == (year, month)
                 ],
                 "pending": pending(contract, year, month),
-                "final": store.final_payslip(year, month) is not None,
+                "final": final,
                 "tfr": tfr(contract, store.advances(), year, month, source(contract), book),
                 "prev": f"/mese/{prev_y}/{prev_m}",
                 "next": f"/mese/{next_y}/{next_m}",

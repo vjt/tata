@@ -121,7 +121,9 @@
 </section>
 
 <section class="card">
-  <h2>Prospetto paga {% if final %}<small>(finalizzato)</small>{% endif %}</h2>
+  <h2>Lavorato · prospetto paga {% if final %}<small>(finalizzato)</small>{% endif %}</h2>
+  <p class="hint">Solo le ore timbrate, più festività, ferie, permessi, malattia e mandata a casa
+    confermati. È questo che si paga e si finalizza.</p>
   {% include "_prospetto.html" %}
   <p class="actions">
     <a class="button" href="/mese/{{ year }}/{{ month }}/prospetto.pdf">PDF</a>
@@ -130,4 +132,24 @@
     {% endif %}
   </p>
 </section>
+
+{% if planned %}
+<section class="card">
+  <h2>Pianificato</h2>
+  <p class="hint">L'orario del contratto per tutto il mese, come se fosse lavorato: solo per
+    confronto, non si paga.</p>
+  <table class="lines">
+    <thead><tr><th>Voce</th><th>Quantità</th><th>Tariffa</th><th>Importo</th></tr></thead>
+    <tbody>
+    {% for li in planned.lines %}
+      <tr><td>{{ li.voce }}</td><td>{{ li.quantita | num }} {{ li.unita }}</td><td>{{ li.tariffa | num }}</td><td>{{ li.importo | eur }}</td></tr>
+    {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr class="total"><td colspan="3">Retribuzione lorda</td><td>{{ planned.lordo | eur }}</td></tr>
+      <tr class="total net"><td colspan="3">Netto</td><td>{{ planned.netto | eur }}</td></tr>
+    </tfoot>
+  </table>
+</section>
+{% endif %}
 {% endblock %}

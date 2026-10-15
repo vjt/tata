@@ -1,5 +1,7 @@
 import base64
-from datetime import date, datetime
+import sqlite3
+from contextlib import closing
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.error import URLError
 from zoneinfo import ZoneInfo
@@ -8,7 +10,9 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from tata.festivita import festivita
 from tata.presenza import Change, History, Seen
+from tata.store import Store
 from tata.web import Settings, create_app
 from tests.helpers import RATES_DIR
 
@@ -60,6 +64,31 @@ def client(tmp_path: Path) -> TestClient:
 def hired(tmp_path: Path) -> TestClient:
     c = client(tmp_path)
     assert c.post("/contratto", data=CONTRACT_FORM).status_code == 303
+    return c
+
+
+def worked_as_scheduled(tmp_path: Path, first: date, last: date) -> None:
+    """Every scheduled span first..last punched in full (no punch, no pay). Months already
+    worked, so not through the web (which refuses future punches); one transaction, because
+    a commit per punch (Store.add_punch) made each of these tests take a second."""
+    path = tmp_path / "tata.sqlite"
+    contract = Store(path).contract()
+    assert contract is not None
+    rows = [
+        (day.isoformat(), s.start, s.end)
+        for day in (first + timedelta(days=n) for n in range((last - first).days + 1))
+        if day not in festivita(day.year, 6, 24)  # patrono as in CONTRACT_FORM
+        for s in contract.orario[day.weekday()]
+    ]
+    with closing(sqlite3.connect(path)) as db, db:
+        db.executemany("INSERT INTO punch (day, start, stop) VALUES (?, ?, ?)", rows)
+    assert len(Store(path).punches()) >= len(rows)  # the schema still matches
+
+
+def worked(tmp_path: Path) -> TestClient:
+    """Hired 12/10/2026 and worked exactly the schedule to the end of the year."""
+    c = hired(tmp_path)
+    worked_as_scheduled(tmp_path, date(2026, 10, 12), date(2026, 12, 31))
     return c
 
 
@@ -153,7 +182,7 @@ def test_payslip_pdf(tmp_path: Path) -> None:
 
 
 def test_finalized_month_refuses_new_events(tmp_path: Path) -> None:
-    c = hired(tmp_path)
+    c = worked(tmp_path)
     assert c.post("/mese/2026/10/finalizza").status_code == 303
     r = c.post(
         "/eventi",
@@ -171,7 +200,7 @@ def test_finalized_month_refuses_new_events(tmp_path: Path) -> None:
 
 
 def test_year_page_quarter_and_payment_and_deduction(tmp_path: Path) -> None:
-    c = hired(tmp_path)
+    c = worked(tmp_path)
     page = c.get("/anno/2026")
     assert "318,56" in page.text  # Q4 bollettino, see test_inps
     assert "10/01/2027" in page.text
@@ -189,7 +218,7 @@ def test_attestazione_pdf(tmp_path: Path) -> None:
 
 
 def test_tfr_advance(tmp_path: Path) -> None:
-    c = hired(tmp_path)
+    c = worked(tmp_path)
     r = c.post("/anno/2026/anticipi", data={"giorno": "2026-12-20", "importo": "29,45"})
     assert r.status_code == 303
     assert "100,00" in c.get("/anno/2026").text  # fund 129,45 - 29,45
@@ -223,7 +252,7 @@ def test_contract_change_that_orphans_events_is_refused(tmp_path: Path) -> None:
 
 
 def test_months_must_be_finalized_in_order(tmp_path: Path) -> None:
-    c = hired(tmp_path)
+    c = worked(tmp_path)
     r = c.post("/mese/2026/11/finalizza")
     assert r.status_code == 400
     assert "ottobre" in r.text
@@ -239,7 +268,7 @@ def test_ambiguous_thousands_dot_is_refused(tmp_path: Path) -> None:
 
 
 def test_year_page_marks_future_quarters_as_projection(tmp_path: Path) -> None:
-    hired(tmp_path)
+    worked(tmp_path)
 
     def mid_november() -> datetime:
         return datetime(2026, 11, 15, 12, 0, tzinfo=ZoneInfo("Europe/Rome"))
@@ -297,9 +326,9 @@ def test_confirm_records_the_scheduled_span(tmp_path: Path) -> None:
 
 
 def test_shortfall_is_proposed_and_blocks_finalize_until_confirmed(tmp_path: Path) -> None:
-    # Tue 13/10 punched only in the afternoon; the 08:00-08:45 span is pending.
-    c, _ = punching(tmp_path, rome(2026, 10, 13, 18, 30))
-    c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
+    # Mon 12/10 (hire day) punched only in the afternoon; the 08:00-08:45 span is pending.
+    c, _ = punching(tmp_path, rome(2026, 10, 12, 18, 30))
+    c.post("/timbrature", data={"giorno": "2026-10-12", "inizio": "15:45", "fine": "18:00"})
     page = c.get("/mese/2026/10").text
     assert "Da confermare" in page and "08:00-08:45" in page
     r = c.post("/mese/2026/10/finalizza")
@@ -308,7 +337,7 @@ def test_shortfall_is_proposed_and_blocks_finalize_until_confirmed(tmp_path: Pat
         "/eventi",
         data={
             "kind": "mora",
-            "dal": "2026-10-13",
+            "dal": "2026-10-12",
             "al": "",
             "inizio": "08:00",
             "fine": "08:45",
@@ -320,17 +349,20 @@ def test_shortfall_is_proposed_and_blocks_finalize_until_confirmed(tmp_path: Pat
 
 def test_month_still_running_cannot_be_finalized(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 10, 31, 12, 0))
+    worked_as_scheduled(tmp_path, date(2026, 10, 12), date(2026, 10, 30))
     r = c.post("/mese/2026/10/finalizza")
     assert r.status_code == 400 and "non è ancora finito" in r.text
 
 
-def test_payslip_pays_only_punched_time_from_the_first_punch(tmp_path: Path) -> None:
-    # Hired Mon 12/10, no punch that day: paid as scheduled, 3 h. First punch Tue 13/10
-    # 15:45-18:00 (2 h 15); its 08:00-08:45 gap, still to confirm, and 14-31/10 are unpaid.
-    # Ore ordinarie: 180 + 135 = 315 min = 5,25 h.
+def test_payslip_pays_only_punched_time(tmp_path: Path) -> None:
+    # Hired Mon 12/10, nothing punched that day: no punch, no pay. Tue 13/10 punched
+    # 15:45-18:00 = 2 h 15 = 2,25 h; its 08:00-08:45 gap (still to confirm) and 14-31/10 unpaid.
     c, _ = punching(tmp_path, rome(2026, 10, 13, 18, 30))
     c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
-    assert "<td>Ore ordinarie</td><td>5,25 h</td>" in c.get("/mese/2026/10").text
+    page = c.get("/mese/2026/10").text
+    assert "<td>Ore ordinarie</td><td>2,25 h</td>" in page
+    # Planned, for comparison: the schedule 12-31/10, 15 working days x 3 h = 45 h.
+    assert "<td>Ore ordinarie</td><td>45,00 h</td>" in page.split("<h2>Pianificato</h2>")[1]
     c.post(
         "/eventi",
         data={
@@ -342,8 +374,8 @@ def test_payslip_pays_only_punched_time_from_the_first_punch(tmp_path: Path) -> 
             "note": "",
         },
     )
-    # Sent home 08:00-08:45: paid as scheduled (art. 1206 c.c.), + 45 min = 6,00 h.
-    assert "<td>Ore ordinarie</td><td>6,00 h</td>" in c.get("/mese/2026/10").text
+    # Sent home 08:00-08:45: paid as scheduled (art. 1206 c.c.), + 45 min = 3,00 h.
+    assert "<td>Ore ordinarie</td><td>3,00 h</td>" in c.get("/mese/2026/10").text
 
 
 def test_stale_open_punch_asks_for_the_exit_time(tmp_path: Path) -> None:
@@ -367,8 +399,10 @@ def test_stop_in_the_same_minute_is_refused(tmp_path: Path) -> None:
 
 
 def test_shortfalls_of_a_finalized_month_are_ignored(tmp_path: Path) -> None:
-    # First punch Fri 30/10, its morning confirmed as MORA; October finalized Mon 2/11 at 07:00.
+    # Worked 12-29/10; Fri 30/10 afternoon only, its morning confirmed as MORA; October
+    # finalized Mon 2/11 at 07:00.
     c, clock = punching(tmp_path, rome(2026, 11, 2, 7, 0))
+    worked_as_scheduled(tmp_path, date(2026, 10, 12), date(2026, 10, 29))
     c.post("/timbrature", data={"giorno": "2026-10-30", "inizio": "15:45", "fine": "18:00"})
     c.post(
         "/eventi",
@@ -419,8 +453,9 @@ def test_punch_longer_than_eight_hours_is_highlighted(tmp_path: Path) -> None:
 
 def test_punch_in_a_finalized_month_is_refused(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 11, 2, 9, 0))
+    worked_as_scheduled(tmp_path, date(2026, 10, 12), date(2026, 10, 31))
     assert c.post("/mese/2026/10/finalizza").status_code == 303
-    r = c.post("/timbrature", data={"giorno": "2026-10-14", "inizio": "15:45", "fine": "18:00"})
+    r = c.post("/timbrature", data={"giorno": "2026-10-18", "inizio": "10:00", "fine": "12:00"})
     assert r.status_code == 400 and "finalizzato" in r.text
 
 
@@ -595,7 +630,7 @@ def test_worker_reads_the_month_and_punches_but_nothing_else(tmp_path: Path) -> 
         == 303
     )
     page = w.get("/mese/2026/10").text
-    assert "15:45-18:00" in page and "Prospetto paga" in page
+    assert "15:45-18:00" in page and "prospetto paga" in page
     # No employer controls on her page: events, confirmations, deletions, finalize, nav.
     for control in (
         'action="/eventi"',

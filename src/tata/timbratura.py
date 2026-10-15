@@ -54,31 +54,34 @@ def overruns(contract: Contract, punch: Punch) -> list[Span]:
 def shortfalls(
     contract: Contract, events: list[Event], punches: list[Punch], now: datetime
 ) -> list[Shortfall]:
-    """Ended scheduled time no punch and no event explains, from the first punch ever to now.
+    """Ended scheduled time no punch and no event explains, from the hire date to now.
 
     Derived, never stored: an ASSENZA, PERMESSO or MORA over the gap, or any whole-day event,
     is what clears it. An open punch covers the rest of its day.
     """
-    if not punches:
-        return []
     today, minute = now.date(), now.hour * 60 + now.minute
+    day_events: dict[date, list[Event]] = {}
+    for ev in events:
+        day_events.setdefault(ev.day, []).append(ev)
+    day_punches: dict[date, list[Punch]] = {}
+    for p in punches:
+        day_punches.setdefault(p.day, []).append(p)
     result: list[Shortfall] = []
-    day = min(p.day for p in punches)
-    while day <= today:
+    day = contract.assunzione
+    while day <= today and contract.employed_on(day):
         ended: set[int] = set()
         for s in contract.orario[day.weekday()]:
             if day < today or s.end <= minute:
                 ended |= s.minutes()
         holiday = day in _holidays(contract, day.year)
         missing = scheduled_minutes(contract, day, holiday) & ended
-        for ev in events:
-            if ev.day == day and ev.span is None:
+        for ev in day_events.get(day, []):
+            if ev.span is None:
                 missing = set[int]()
-            elif ev.day == day and ev.span is not None and ev.kind in COVERING:
+            elif ev.kind in COVERING:
                 missing -= ev.span.minutes()
-        for p in punches:
-            if p.day == day:
-                missing -= set(range(p.start, MINUTES_PER_DAY if p.end is None else p.end))
+        for p in day_punches.get(day, []):
+            missing -= set(range(p.start, MINUTES_PER_DAY if p.end is None else p.end))
         result += [Shortfall(day=day, span=s) for s in _runs(missing)]
         day += timedelta(days=1)
     return result
@@ -87,8 +90,8 @@ def shortfalls(
 def unpunched(
     contract: Contract, events: list[Event], punches: list[Punch], year: int, month: int
 ) -> list[Event]:
-    """From the first punch on only punched time is paid: the month's scheduled time no punch
-    and no event covers (gaps still to confirm, days still to come), as unstored ASSENZA.
+    """Only punched time is paid: the month's scheduled time no punch and no event covers
+    (gaps still to confirm, days still to come), as unstored ASSENZA. No punch, no pay.
 
     Confirming a gap as MORA or PERMESSO is what pays it.
     """
