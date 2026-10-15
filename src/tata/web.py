@@ -9,7 +9,7 @@ import re
 import secrets
 from collections.abc import Callable
 from datetime import date, datetime, time, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated
 from urllib.error import URLError
@@ -640,6 +640,7 @@ def _templates() -> Jinja2Templates:
     templates.env.filters["num"] = _fmt_num
     templates.env.filters["dmy"] = _fmt_dmy
     templates.env.filters["ore"] = _fmt_ore
+    templates.env.filters["hm"] = _fmt_hm
     return templates
 
 
@@ -654,6 +655,14 @@ def _fmt_dmy(value: date) -> str:
 
 def _fmt_ore(minutes: int) -> str:
     return f"{minutes // 60}:{minutes % 60:02d}"
+
+
+def _fmt_hm(hours: Decimal) -> str:
+    """Hours as hours and minutes: 1,62 -> "1 h 37 min". The payslip keeps hours to the
+    cent of an hour, 0,3 min at most from the minutes they came from: rounding restores them."""
+    total = int((hours * 60).to_integral_value(ROUND_HALF_UP))
+    h, m = divmod(total, 60)
+    return f"{h} h {m} min" if m else f"{h} h"
 
 
 def _fmt_eur(value: Decimal) -> str:

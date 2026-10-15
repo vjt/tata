@@ -368,11 +368,11 @@ def test_payslip_pays_only_punched_time(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 10, 13, 18, 30))
     c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
     page = c.get("/mese/2026/10").text
-    assert "<td>Ore ordinarie</td><td>2,25 h</td>" in page
+    assert "<td>Ore ordinarie</td><td>2 h 15 min</td>" in page
     # The 13ma follows: 2,25 h x 8,86 = 19,935 -> 19,94 ; / 12 = 1,66 (art. 39).
     assert "<th>Tredicesima maturata nell'anno</th><td>1,66 €</td>" in page
     # Planned, for comparison: the schedule 12-31/10, 15 working days x 3 h = 45 h.
-    assert "<td>Ore ordinarie</td><td>45,00 h</td>" in page.split("<h2>Pianificato</h2>")[1]
+    assert "<td>Ore ordinarie</td><td>45 h</td>" in page.split("<h2>Pianificato</h2>")[1]
     c.post(
         "/eventi",
         data={
@@ -385,7 +385,7 @@ def test_payslip_pays_only_punched_time(tmp_path: Path) -> None:
         },
     )
     # Sent home 08:00-08:45: paid as scheduled (art. 1206 c.c.), + 45 min = 3,00 h.
-    assert "<td>Ore ordinarie</td><td>3,00 h</td>" in c.get("/mese/2026/10").text
+    assert "<td>Ore ordinarie</td><td>3 h</td>" in c.get("/mese/2026/10").text
 
 
 def test_stale_open_punch_asks_for_the_exit_time(tmp_path: Path) -> None:
@@ -720,3 +720,12 @@ def test_each_turno_carries_its_rimborso(tmp_path: Path) -> None:
 
 def italian(amount: str) -> Decimal:
     return Decimal(amount.replace(".", "").replace(",", "."))
+
+
+def test_payslip_hours_are_shown_as_hours_and_minutes(tmp_path: Path) -> None:
+    # 15:45-17:22 = 97 min, kept as 1,62 h (97,2 min): shown as 1 h 37 min, INPS rows too.
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 19, 0))
+    c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "17:22"})
+    page = c.get("/mese/2026/10").text.split("Lavorato")[1]
+    assert "<td>Ore ordinarie</td><td>1 h 37 min</td>" in page
+    assert "Contributi INPS a carico lavoratore (1 h 37 min " in page

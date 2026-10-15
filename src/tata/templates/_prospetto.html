@@ -11,15 +11,15 @@
   <thead><tr><th>Voce</th><th>Quantità</th><th>Tariffa</th><th>Importo</th></tr></thead>
   <tbody>
   {% for li in slip.lines %}
-    <tr><td>{{ li.voce }}</td><td>{{ li.quantita | num }} {{ li.unita }}</td><td>{{ li.tariffa | num }}</td><td>{{ li.importo | eur }}</td></tr>
+    <tr><td>{{ li.voce }}</td><td>{% if li.unita == "h" %}{{ li.quantita | hm }}{% else %}{{ li.quantita | num }} {{ li.unita }}{% endif %}</td><td>{{ li.tariffa | num }}</td><td>{{ li.importo | eur }}</td></tr>
   {% else %}
     <tr><td colspan="4">Nessuna retribuzione nel mese.</td></tr>
   {% endfor %}
   </tbody>
   <tfoot>
     <tr class="total"><td colspan="3">Retribuzione lorda</td><td>{{ slip.lordo | eur }}</td></tr>
-    <tr><td colspan="3">Contributi INPS a carico lavoratore ({{ slip.ore_retribuite | num }} h × {{ slip.contributo.lavoratore | num }})</td><td>− {{ slip.trattenuta_inps | eur }}</td></tr>
-    <tr><td colspan="3">Cassa Colf a carico lavoratore ({{ slip.ore_retribuite | num }} h × {{ slip.cassa_colf.lavoratore | num }})</td><td>− {{ slip.trattenuta_cassa_colf | eur }}</td></tr>
+    <tr><td colspan="3">Contributi INPS a carico lavoratore ({{ slip.ore_retribuite | hm }} × {{ slip.contributo.lavoratore | num }})</td><td>− {{ slip.trattenuta_inps | eur }}</td></tr>
+    <tr><td colspan="3">Cassa Colf a carico lavoratore ({{ slip.ore_retribuite | hm }} × {{ slip.cassa_colf.lavoratore | num }})</td><td>− {{ slip.trattenuta_cassa_colf | eur }}</td></tr>
     <tr class="total net"><td colspan="3">Netto</td><td>{{ slip.netto | eur }}</td></tr>
     {% if slip.rimborso %}
     <tr><td colspan="3">{{ slip.rimborso.voce }}: {{ slip.rimborso.quantita | int }} {{ slip.rimborso.unita }} ({{ slip.rimborso.tariffa | eur }} a turno)</td><td>+ {{ slip.rimborso.importo | eur }}</td></tr>

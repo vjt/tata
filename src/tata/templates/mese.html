@@ -156,7 +156,7 @@
     <thead><tr><th>Voce</th><th>Quantità</th><th>Tariffa</th><th>Importo</th></tr></thead>
     <tbody>
     {% for li in planned.lines %}
-      <tr><td>{{ li.voce }}</td><td>{{ li.quantita | num }} {{ li.unita }}</td><td>{{ li.tariffa | num }}</td><td>{{ li.importo | eur }}</td></tr>
+      <tr><td>{{ li.voce }}</td><td>{% if li.unita == "h" %}{{ li.quantita | hm }}{% else %}{{ li.quantita | num }} {{ li.unita }}{% endif %}</td><td>{{ li.tariffa | num }}</td><td>{{ li.importo | eur }}</td></tr>
     {% endfor %}
     </tbody>
     <tfoot>
