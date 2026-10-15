@@ -5,7 +5,8 @@
   <h1>Accesso</h1>
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   <input type="hidden" name="next" value="{{ next }}">
-  <label>Password <input name="password" type="password" autocomplete="current-password" required autofocus></label>
+  <label>Utente <input name="user" autocomplete="username" autocapitalize="none" required autofocus value="{{ user }}"></label>
+  <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
   <button>Entra</button>
 </form>
 {% endblock %}

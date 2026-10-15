@@ -17,6 +17,7 @@ from tata.store import Store
 from tata.web import Settings, create_app
 from tests.helpers import RATES_DIR
 
+USER = "mascetti"
 PASSWORD = "supercazzola"
 
 CONTRACT_FORM = {
@@ -40,15 +41,16 @@ CONTRACT_FORM = {
 }
 
 
-def logged_in(app: FastAPI, password: str, follow: bool) -> TestClient:
+def logged_in(app: FastAPI, user: str, password: str, follow: bool) -> TestClient:
     """A browser that went through the login page (https: the cookie is Secure)."""
     c = TestClient(app, base_url="https://testserver", follow_redirects=follow)
-    r = c.post("/login", data={"password": password, "next": "/"}, follow_redirects=False)
+    form = {"user": user, "password": password, "next": "/"}
+    r = c.post("/login", data=form, follow_redirects=False)
     assert r.status_code == 303, r.text
     return c
 
 
-WORKER = "pass-lavoratrice"  # set per rapporto by the employer, see with_worker
+WORKER = ("carmen", "pass-lavoratrice")  # set per rapporto by the employer, see with_worker
 # Invented route: 12 km a turno (andata e ritorno), ACI 0,4463 €/km.
 MILEAGE = Mileage(km_turno=Decimal(12), euro_km=Decimal("0.4463"))
 
@@ -57,6 +59,7 @@ def settings(tmp_path: Path) -> Settings:
     return Settings(
         data_dir=tmp_path,
         rates_dir=RATES_DIR,
+        user=USER,
         password=PASSWORD,
         mileage=MILEAGE,
     )
@@ -68,7 +71,7 @@ def end_of_2026() -> datetime:
 
 def client(tmp_path: Path) -> TestClient:
     app = create_app(settings(tmp_path), end_of_2026, None)
-    return logged_in(app, PASSWORD, False)
+    return logged_in(app, USER, PASSWORD, False)
 
 
 def hired(tmp_path: Path) -> TestClient:
@@ -110,17 +113,19 @@ def test_login_page_guards_everything(tmp_path: Path) -> None:
     assert r.status_code == 303 and r.headers["location"] == "/login?next=/r/1/contratto"
     assert anon.post("/r/1/eventi").headers["location"].startswith("/login")
     page = anon.get("/login?next=/r/1/contratto").text
-    assert 'type="password"' in page and "rapporti</a>" not in page  # no nav before login
-    r = anon.post("/login", data={"password": "sbagliata", "next": "/"})
-    assert r.status_code == 401 and "password sbagliata" in r.text
-    r = anon.post("/login", data={"password": PASSWORD, "next": "/rapporti"})
+    assert 'name="user"' in page and 'type="password"' in page
+    assert "rapporti</a>" not in page  # no nav before login
+    for user, password in ((USER, "sbagliata"), ("perozzi", PASSWORD)):
+        r = anon.post("/login", data={"user": user, "password": password, "next": "/"})
+        assert r.status_code == 401 and "utente o password sbagliati" in r.text
+    r = anon.post("/login", data={"user": USER, "password": PASSWORD, "next": "/rapporti"})
     assert r.headers["location"] == "/rapporti"
     cookie = r.headers["set-cookie"].lower()
     assert "httponly" in cookie and "secure" in cookie and "samesite=lax" in cookie
     assert anon.get("/rapporti").status_code == 200
     # Elsewhere after login: never another site.
     other = TestClient(app, base_url="https://testserver", follow_redirects=False)
-    r = other.post("/login", data={"password": PASSWORD, "next": "//evil.example/"})
+    r = other.post("/login", data={"user": USER, "password": PASSWORD, "next": "//evil.example/"})
     assert r.headers["location"] == "/"
     # Logout ends the session.
     assert anon.post("/logout").headers["location"] == "/login"
@@ -129,7 +134,7 @@ def test_login_page_guards_everything(tmp_path: Path) -> None:
 
 def test_session_expires(tmp_path: Path) -> None:
     clock = FakeClock(rome(2026, 10, 13, 9, 0))
-    c = logged_in(create_app(settings(tmp_path), clock, None), PASSWORD, False)
+    c = logged_in(create_app(settings(tmp_path), clock, None), USER, PASSWORD, False)
     clock.value = rome(2027, 1, 10, 9, 0)  # 89 days: still in
     assert c.get("/rapporti").status_code == 200
     clock.value = rome(2027, 1, 12, 9, 0)  # past 90 days
@@ -330,7 +335,7 @@ def test_year_page_marks_future_quarters_as_projection(tmp_path: Path) -> None:
     def mid_november() -> datetime:
         return datetime(2026, 11, 15, 12, 0, tzinfo=ZoneInfo("Europe/Rome"))
 
-    c = logged_in(create_app(settings(tmp_path), mid_november, None), PASSWORD, True)
+    c = logged_in(create_app(settings(tmp_path), mid_november, None), USER, PASSWORD, True)
     page = c.get("/r/1/anno/2026")
     assert "stima" in page.text
     # TFR through November only: (398,70 + 580,33) / 13,5 = 72,52
@@ -353,7 +358,7 @@ class FakeClock:
 
 def punching(tmp_path: Path, start: datetime) -> tuple[TestClient, FakeClock]:
     clock = FakeClock(start)
-    c = logged_in(create_app(settings(tmp_path), clock, None), PASSWORD, False)
+    c = logged_in(create_app(settings(tmp_path), clock, None), USER, PASSWORD, False)
     assert c.post("/rapporti", data=CONTRACT_FORM).status_code == 303
     return c, clock
 
@@ -600,7 +605,7 @@ TRACKER = "device_tracker.necchi"
 
 
 def presence_client(tmp_path: Path, clock: datetime, ha: FakeHomeAssistant) -> TestClient:
-    c = logged_in(create_app(settings(tmp_path), FakeClock(clock), ha), PASSWORD, False)
+    c = logged_in(create_app(settings(tmp_path), FakeClock(clock), ha), USER, PASSWORD, False)
     form = {**CONTRACT_FORM, "ha_entity": TRACKER}
     assert c.post("/rapporti", data=form).status_code == 303
     return c
@@ -650,7 +655,7 @@ def test_presence_page_without_home_assistant(tmp_path: Path) -> None:
 
 
 def test_presence_not_configured(tmp_path: Path) -> None:
-    c = logged_in(create_app(settings(tmp_path), end_of_2026, None), PASSWORD, True)
+    c = logged_in(create_app(settings(tmp_path), end_of_2026, None), USER, PASSWORD, True)
     assert c.post("/rapporti", data=CONTRACT_FORM).status_code == 200
     r = c.get("/r/1/presenza/2026/10")
     assert r.status_code == 400
@@ -660,7 +665,7 @@ def test_presence_not_configured(tmp_path: Path) -> None:
 def test_presence_needs_the_rapporto_tracker(tmp_path: Path) -> None:
     ha = FakeHomeAssistant(A_DAY)
     c, _ = punching(tmp_path, rome(2026, 10, 15, 19, 0))
-    c = logged_in(create_app(settings(tmp_path), end_of_2026, ha), PASSWORD, False)
+    c = logged_in(create_app(settings(tmp_path), end_of_2026, ha), USER, PASSWORD, False)
     r = c.get("/r/1/presenza/2026/10")
     assert r.status_code == 400 and "tracker" in r.text
     assert ha.asked == []
@@ -687,12 +692,14 @@ def test_return_address_must_be_a_presence_page(tmp_path: Path) -> None:
     assert r.headers["location"] == "/r/1/mese/2026/10"
 
 
-def with_worker(c: TestClient, cid: int, password: str) -> TestClient:
-    """The employer gives the worker of rapporto `cid` her password; her client."""
-    assert c.post(f"/r/{cid}/accesso", data={"password": password}).status_code == 303
+def with_worker(c: TestClient, cid: int, login: tuple[str, str]) -> TestClient:
+    """The employer gives the worker of rapporto `cid` her login; her client."""
+    user, password = login
+    form = {"user": user, "password": password}
+    assert c.post(f"/r/{cid}/accesso", data=form).status_code == 303
     app = c.app
     assert isinstance(app, FastAPI)
-    return logged_in(app, password, False)
+    return logged_in(app, user, password, False)
 
 
 def test_worker_reads_the_month_and_punches_but_nothing_else(tmp_path: Path) -> None:
@@ -743,15 +750,21 @@ def test_worker_password_is_hers_alone(tmp_path: Path) -> None:
     sitter = {**CONTRACT_FORM, "lavoratore_nome": "Luisa Sassaroli"}
     c.post("/rapporti", data=sitter)
     carmen = with_worker(c, 1, WORKER)
-    # Her password opens her rapporto only.
+    assert "Entra come <b>carmen</b>" in c.get("/r/1/contratto").text
+    # Her login opens her rapporto only.
     assert carmen.get("/r/1/mese/2026/10").status_code == 200
     assert carmen.get("/r/2/mese/2026/10").status_code == 403
     assert carmen.post("/r/2/timbra/inizio").status_code == 403
-    # A password identifies one rapporto: not the employer's, not another worker's.
-    for taken in (PASSWORD, WORKER):
-        r = c.post("/r/2/accesso", data={"password": taken})
-        assert r.status_code == 400 and "già in uso" in r.text
-    assert c.post("/r/2/accesso", data={"password": "corto"}).status_code == 400
+    # A login name identifies one rapporto: not the employer's, not another worker's.
+    for taken in (USER, WORKER[0]):
+        r = c.post("/r/2/accesso", data={"user": taken, "password": "altra-password"})
+        assert r.status_code == 400
+    r = c.post("/r/2/accesso", data={"user": "luisa", "password": "corto"})
+    assert r.status_code == 400
+    # The same password under another name is fine: the name says who.
+    luisa = with_worker(c, 2, ("luisa", WORKER[1]))
+    assert luisa.get("/r/2/mese/2026/10").status_code == 200
+    assert luisa.get("/r/1/mese/2026/10").status_code == 403
     # Taken away: she is nobody.
     assert c.post("/r/1/accesso", data={"togli": "1"}).status_code == 303
     assert carmen.get("/r/1/mese/2026/10").headers["location"].startswith("/login")

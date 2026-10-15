@@ -87,8 +87,8 @@ Calc modules never touch the DB; the store never computes.
 - **Rapporti** (spec 2026-10-15-rapporti): one employer, many rapporti. Everything is per
   rapporto (contract, events, punches, finals, INPS payments, TFR advances) except the
   deduction (art. 10 c.2 TUIR cap per employer: one export summing all). Never deleted: a
-  closed rapporto stays readable. Worker access: a scrypt-hashed password per rapporto, which
-  identifies it (must be unique). Schema version in `PRAGMA user_version`, migrations in
+  closed rapporto stays readable. Login: the employer's `TATA_USER` + `TATA_PASSWORD`; per rapporto a worker
+  login name (unique, identifies it) and a scrypt-hashed password. Schema version in `PRAGMA user_version`, migrations in
   `store._upgrade`, one transaction.
 
 ## Engineering principles (inherited from grappa / gastone / decaf, owned here)

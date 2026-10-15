@@ -73,7 +73,8 @@ ROME = ZoneInfo("Europe/Rome")
 class Settings(Frozen):
     data_dir: Path
     rates_dir: Path
-    password: str  # the employer: every rapporto
+    user: str  # the employer's login: every rapporto
+    password: str
     mileage: Mileage | None  # rimborso trasferte per turno; None = no rimborso
 
 
@@ -135,6 +136,7 @@ def app_from_env() -> FastAPI:
         Settings(
             data_dir=Path(os.environ["TATA_DATA_DIR"]),
             rates_dir=Path(os.environ["TATA_RATES_DIR"]),
+            user=os.environ["TATA_USER"],
             password=os.environ["TATA_PASSWORD"],
             mileage=Mileage(km_turno=Decimal(km), euro_km=Decimal(euro_km)) if km else None,
         ),
@@ -151,17 +153,17 @@ def _home_assistant(base: str, token: str) -> PresenceSource:
 
 
 def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) -> FastAPI:
-    if not settings.password:
-        raise ValueError("TATA_PASSWORD vuota")
+    if not settings.user or not settings.password:
+        raise ValueError("TATA_USER o TATA_PASSWORD vuota")
     store = Store(settings.data_dir / "tata.sqlite")
     book = RatesBook(settings.rates_dir)
     templates = _templates()
 
     def credential_tag(contract_id: int | None) -> str | None:
-        """What a session's credential must still be: the employer's password, or the
-        worker's current hash. None: she no longer has access."""
+        """What a session's credential must still be: the employer's login, or the worker's
+        current hash. None: she no longer has access."""
         if contract_id is None:
-            return digest(settings.password)
+            return digest(f"{settings.user}\n{settings.password}")
         stored = store.worker_hashes().get(contract_id)
         return None if stored is None else digest(stored)
 
@@ -224,25 +226,30 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request) -> HTMLResponse:
         nxt = request.query_params.get("next", "/")
-        return templates.TemplateResponse(request, "login.html", {"next": nxt, "error": ""})
+        return templates.TemplateResponse(
+            request, "login.html", {"next": nxt, "user": "", "error": ""}
+        )
 
     @app.post("/login", response_model=None)
     async def login(request: Request) -> Response:
-        """The password says who: the employer's, or the one of a worker's rapporto."""
+        """The employer (TATA_USER), or the worker of the rapporto with that login name."""
         form = await request.form()
-        password, nxt = _field(form, "password"), _field(form, "next")
-        if secrets.compare_digest(password.encode(), settings.password.encode()):
+        user, password = _field(form, "user"), _field(form, "password")
+        nxt = _field(form, "next")
+        worker = store.worker_login(user)
+        if secrets.compare_digest(user.encode(), settings.user.encode()) and (
+            secrets.compare_digest(password.encode(), settings.password.encode())
+        ):
             who: int | None = None
+        elif worker is not None and check_password(password, worker[1]):
+            who = worker[0]
         else:
-            matches = [c for c, h in store.worker_hashes().items() if check_password(password, h)]
-            if not matches:
-                return templates.TemplateResponse(
-                    request,
-                    "login.html",
-                    {"next": nxt, "error": "password sbagliata"},
-                    status_code=401,
-                )
-            who = matches[0]
+            return templates.TemplateResponse(
+                request,
+                "login.html",
+                {"next": nxt, "user": user, "error": "utente o password sbagliati"},
+                status_code=401,
+            )
         tag = credential_tag(who)
         if tag is None:
             raise RuntimeError("accesso appena verificato e già sparito")
@@ -472,7 +479,7 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 **page(rs, contract),
                 "contract": contract,
                 "ha_entity": rapporto.ha_entity,
-                "worker_access": rapporto.worker_access,
+                "worker_user": rapporto.worker_user,
                 "action": f"/r/{cid}/contratto",
                 "livelli": list(Livello),
                 "giorni": GIORNI,
@@ -508,22 +515,18 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
 
     @app.post("/r/{cid}/accesso")
     async def worker_access(request: Request, cid: int) -> RedirectResponse:
-        """Give, change or take away the worker's own password."""
+        """Give, change or take away the worker's own login name and password."""
         store.rapporto(cid)
         form = await request.form()
         if form.get("togli"):
-            store.set_worker_hash(cid, None)
+            store.set_worker_login(cid, None)
             return RedirectResponse(f"/r/{cid}/contratto", status_code=303)
-        password = _field(form, "password")
+        user, password = _field(form, "user").strip(), _field(form, "password")
+        if not user or user == settings.user:
+            raise ValueError("nome utente vuoto o del datore")
         if len(password) < 8:
             raise ValueError("la password deve avere almeno 8 caratteri")
-        if secrets.compare_digest(password.encode(), settings.password.encode()) or any(
-            check_password(password, h)
-            for other, h in store.worker_hashes().items()
-            if other != cid
-        ):
-            raise ValueError("password già in uso: deve individuare un solo rapporto")
-        store.set_worker_hash(cid, hash_password(password))
+        store.set_worker_login(cid, (user, hash_password(password)))
         return RedirectResponse(f"/r/{cid}/contratto", status_code=303)
 
     # ---- month

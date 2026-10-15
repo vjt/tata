@@ -44,11 +44,11 @@
 {% if c %}
 <form method="post" action="{{ base }}/accesso" class="card form">
   <h2>Accesso della lavoratrice</h2>
-  <p class="hint">{% if worker_access %}Ha una password: vede il mese e il prospetto, e timbra.{% else %}Nessun accesso.{% endif %}
-    Entra dalla pagina di accesso con questa password, che individua il rapporto: deve essere diversa dalle altre.</p>
+  <p class="hint">{% if worker_user %}Entra come <b>{{ worker_user }}</b>: vede il mese e il prospetto, e timbra.{% else %}Nessun accesso.{% endif %}</p>
+  <label>Utente <input name="user" required autocapitalize="none" autocomplete="off" value="{{ worker_user or '' }}"></label>
   <label>Nuova password <input name="password" type="password" autocomplete="new-password"></label>
-  <button>{% if worker_access %}Cambia password{% else %}Dai accesso{% endif %}</button>
-  {% if worker_access %}<button name="togli" value="1" class="link">togli l'accesso</button>{% endif %}
+  <button>{% if worker_user %}Cambia{% else %}Dai accesso{% endif %}</button>
+  {% if worker_user %}<button name="togli" value="1" class="link" formnovalidate>togli l'accesso</button>{% endif %}
 </form>
 {% endif %}
 {% endblock %}

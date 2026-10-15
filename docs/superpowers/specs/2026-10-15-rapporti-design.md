@@ -4,7 +4,7 @@ Status: approved (2026-10-15). Supersedes "more than one worker: out of scope" i
 
 ## Model
 
-One installation is **one employer** (one login, `TATA_PASSWORD`) with any number of
+One installation is **one employer** (one login, `TATA_USER` + `TATA_PASSWORD`) with any number of
 **rapporti**: one per worker and hire, open (no cessazione, or a future one) or closed. A
 worker hired again after a cessazione is a new rapporto: the contract still has no history.
 Rapporti may overlap in time (a babysitter and a colf at once). A rapporto is never deleted:
@@ -26,12 +26,12 @@ Assistant URL and token.
 
 ## Access
 
-- Employer (`TATA_PASSWORD`): everything, every rapporto.
-- Worker: a password per rapporto, set or cleared by the employer on the rapporto's page,
-  stored as a salted scrypt hash. It opens only her rapporto, and in it only the month, the
+- Employer (`TATA_USER` + `TATA_PASSWORD`): everything, every rapporto.
+- Worker: a login name and a password per rapporto, set or cleared by the employer on the
+  rapporto's page, the password stored as a salted scrypt hash. It opens only her rapporto, and in it only the month, the
   payslip PDF and punching (button and by hand). `TATA_WORKER_PASSWORD` is gone.
-- Passwords must differ from the employer's and from each other (a password identifies the
-  rapporto).
+- Login names must differ from the employer's and from each other (the name identifies the
+  rapporto; schema version 3 added it and dropped the bare passwords of version 2).
 
 ## URLs
 

@@ -225,12 +225,17 @@ def test_worker_access_and_tracker(tmp_path: Path) -> None:
     root = Store(tmp_path / "tata.sqlite")
     cid = root.add_rapporto(standard_contract(date(2026, 10, 12)))
     root.set_ha_entity(cid, "device_tracker.necchi")
-    root.set_worker_hash(cid, "scrypt$00$00")
+    root.set_worker_login(cid, ("necchi", "scrypt$00$00"))
     [r] = root.rapporti()
-    assert (r.ha_entity, r.worker_access) == ("device_tracker.necchi", True)
+    assert (r.ha_entity, r.worker_user) == ("device_tracker.necchi", "necchi")
     assert root.worker_hashes() == {cid: "scrypt$00$00"}
-    root.set_worker_hash(cid, None)
-    assert root.worker_hashes() == {} and not root.rapporti()[0].worker_access
+    assert root.worker_login("necchi") == (cid, "scrypt$00$00")
+    other = root.add_rapporto(standard_contract(date(2026, 10, 12)))
+    with pytest.raises(ValueError, match="già in uso"):
+        root.set_worker_login(other, ("necchi", "scrypt$11$11"))
+    root.set_worker_login(cid, None)
+    assert root.worker_hashes() == {} and root.rapporti()[0].worker_user is None
+    assert root.worker_login("necchi") is None
     with pytest.raises(KeyError):
         root.set_ha_entity(99, "")
 
@@ -264,7 +269,7 @@ def test_version_0_becomes_rapporto_1(tmp_path: Path) -> None:
         db.execute("INSERT INTO tfr_advance VALUES (1, '2026-12-20', '10.00')")
     root = Store(path)
     [r] = root.rapporti()
-    assert (r.id, r.contract, r.ha_entity, r.worker_access) == (1, worker, "", False)
+    assert (r.id, r.contract, r.ha_entity, r.worker_user) == (1, worker, "", None)
     rs = root.rapporto(1)
     assert [(p.id, p.start, p.end) for p in rs.punches()] == [(7, 470, 590)]
     assert [e.id for e in rs.events()] == [3] and rs.punch_links() == {3: 7}
@@ -272,3 +277,19 @@ def test_version_0_becomes_rapporto_1(tmp_path: Path) -> None:
     assert rs.employer_car() == set()
     Store(path)  # reopening an upgraded database changes nothing
     assert root.rapporto(1).punches() == rs.punches()
+
+
+def test_version_2_worker_passwords_need_a_login_name(tmp_path: Path) -> None:
+    # Version 2 had a password per rapporto and no login names: the upgrade adds the column
+    # and drops the password, which no longer identifies anyone on its own.
+    path = tmp_path / "tata.sqlite"
+    Store(path).add_rapporto(standard_contract(date(2026, 10, 12)))
+    with closing(sqlite3.connect(path)) as db, db:
+        db.execute("DROP INDEX one_worker_user")
+        db.execute("ALTER TABLE contract DROP COLUMN worker_user")
+        db.execute("UPDATE contract SET worker_hash = 'scrypt$00$00'")
+        db.execute("PRAGMA user_version = 2")
+    root = Store(path)
+    assert root.worker_hashes() == {} and root.rapporti()[0].worker_user is None
+    root.set_worker_login(1, ("necchi", "scrypt$00$00"))
+    assert root.worker_login("necchi") == (1, "scrypt$00$00")

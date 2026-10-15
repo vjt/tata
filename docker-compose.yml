@@ -9,6 +9,7 @@ services:
     hostname: tata
     user: "${TATA_UID}:${TATA_GID}"   # host owner of the data and certs dirs: no chown needed
     environment:
+      - TATA_USER
       - TATA_PASSWORD
       - TATA_RIMBORSO_KM
       - TATA_RIMBORSO_EURO_KM

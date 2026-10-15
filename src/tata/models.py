@@ -134,7 +134,7 @@ class Rapporto(Frozen):
     id: int
     contract: Contract
     ha_entity: str  # Home Assistant tracker of the worker's phone; "" = no wifi presence
-    worker_access: bool  # she has her own password
+    worker_user: str | None  # her own login name; None = no access of her own
 
     def open_on(self, day: date) -> bool:
         return self.contract.cessazione is None or self.contract.cessazione >= day

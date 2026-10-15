@@ -163,12 +163,12 @@ docker compose up -d --build
 
   con `${TATA_CERTS}` montato su `/root/tata` nel pusher.
 - **DNS**: un record A per il nome host che punta a `${TATA_IP}`.
-- **Accesso**: pagina di accesso con la sola password; la sessione è un cookie (`HttpOnly`,
+- **Accesso**: pagina di accesso con utente e password; la sessione è un cookie (`HttpOnly`,
   `Secure`, `SameSite=Lax`) con un token casuale di cui il database tiene solo l'hash, valido
   90 giorni o fino a *esci*, e decade se la password con cui si è entrati cambia. Il
-  datore entra con `TATA_PASSWORD` e vede
-  tutti i rapporti (`/rapporti`). Dalla pagina del contratto può dare a ogni lavoratrice una
-  password sua (salvata come hash scrypt, diversa da tutte le altre): con quella entra solo
+  datore entra con `TATA_USER` e `TATA_PASSWORD` e vede
+  tutti i rapporti (`/rapporti`). Dalla pagina del contratto può dare a ogni lavoratrice un
+  nome utente suo (unico) e una password (salvata come hash scrypt): con quelli entra solo
   nel suo rapporto, in sola lettura sul mese e sul prospetto, e timbra (pulsante o a mano);
   tutto il resto le risponde 403. Le deduzioni dei contributi (`/anno/<anno>/deduzioni.yaml`)
   sommano tutti i rapporti, con un solo tetto annuo per datore.

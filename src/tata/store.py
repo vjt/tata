@@ -24,8 +24,10 @@ CREATE TABLE IF NOT EXISTS contract (
     id INTEGER PRIMARY KEY,
     data TEXT NOT NULL,
     ha_entity TEXT NOT NULL,
-    worker_hash TEXT
+    worker_hash TEXT,
+    worker_user TEXT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS one_worker_user ON contract (worker_user);
 CREATE TABLE IF NOT EXISTS event (
     id INTEGER PRIMARY KEY,
     contract_id INTEGER NOT NULL REFERENCES contract (id),
@@ -82,11 +84,21 @@ CREATE TABLE IF NOT EXISTS session (
 );
 """
 # PRAGMA user_version. 1: rapporti. 2: login sessions (a new table: the schema adds it).
-VERSION = 2
+# 3: worker login names.
+VERSION = 3
+
+# Run on a database of version 1 or later, before the schema, to reach the given version.
+UPGRADES = {
+    # A password without a login name opens nothing: the employer gives both again.
+    3: [
+        "ALTER TABLE contract ADD COLUMN worker_user TEXT",
+        "UPDATE contract SET worker_hash = NULL",
+    ],
+}
 
 # Version 0 had one rapporto per installation: its rows all become rapporto 1.
 COPY_FROM_V0 = {
-    "contract": "INSERT INTO contract SELECT id, data, '', NULL FROM contract_v0",
+    "contract": "INSERT INTO contract SELECT id, data, '', NULL, NULL FROM contract_v0",
     "event": "INSERT INTO event SELECT id, 1, day, kind, span_start, span_end, note FROM event_v0",
     "payslip_final": "INSERT INTO payslip_final SELECT 1, year, month, data, finalized_at "
     "FROM payslip_final_v0",
@@ -111,6 +123,9 @@ def _upgrade(db: sqlite3.Connection) -> None:
         db.execute("DROP INDEX IF EXISTS one_open_punch")
         for t in old:
             db.execute(f"ALTER TABLE {t} RENAME TO {t}_v0")
+        steps = range(version + 1, VERSION + 1) if version > 0 else range(0)
+        for statement in (s for step in steps for s in UPGRADES.get(step, [])):
+            db.execute(statement)
         for statement in SCHEMA.split(";"):
             if statement.strip():
                 db.execute(statement)
@@ -410,15 +425,15 @@ class Store:
                 raise KeyError(params[-1])
 
     def rapporti(self) -> list[Rapporto]:
-        rows = self._read("SELECT id, data, ha_entity, worker_hash FROM contract ORDER BY id", ())
+        rows = self._read("SELECT id, data, ha_entity, worker_user FROM contract ORDER BY id", ())
         return [
             Rapporto(
                 id=int(str(id_)),
                 contract=Contract.model_validate_json(str(data)),
                 ha_entity=str(entity),
-                worker_access=worker_hash is not None,
+                worker_user=None if user is None else str(user),
             )
-            for id_, data, entity, worker_hash in rows
+            for id_, data, entity, user in rows
         ]
 
     def add_rapporto(self, contract: Contract) -> int:
@@ -440,11 +455,30 @@ class Store:
     def set_ha_entity(self, contract_id: int, entity: str) -> None:
         self._update("UPDATE contract SET ha_entity = ? WHERE id = ?", (entity, contract_id))
 
-    def set_worker_hash(self, contract_id: int, worker_hash: str | None) -> None:
-        """The worker's password hash (computed by the caller); None closes her access."""
-        self._update("UPDATE contract SET worker_hash = ? WHERE id = ?", (worker_hash, contract_id))
+    def set_worker_login(self, contract_id: int, login: tuple[str, str] | None) -> None:
+        """The worker's login name and password hash (computed by the caller); None closes
+        her access. Raises ValueError if another rapporto has that name."""
+        user, worker_hash = login if login else (None, None)
+        try:
+            self._update(
+                "UPDATE contract SET worker_user = ?, worker_hash = ? WHERE id = ?",
+                (user, worker_hash, contract_id),
+            )
+        except sqlite3.IntegrityError as e:
+            if "contract.worker_user" not in str(e):
+                raise
+            raise ValueError(f"nome utente {user} già in uso") from e
         with closing(sqlite3.connect(self._path)) as db, db:  # her old password logs her out
             db.execute("DELETE FROM session WHERE contract_id = ?", (contract_id,))
+
+    def worker_login(self, user: str) -> tuple[int, str] | None:
+        """The rapporto with that login name and its password hash, if any."""
+        rows = self._read(
+            "SELECT id, worker_hash FROM contract "
+            "WHERE worker_user = ? AND worker_hash IS NOT NULL",
+            (user,),
+        )
+        return next(((int(str(id_)), str(h)) for id_, h in rows), None)
 
     def worker_hashes(self) -> dict[int, str]:
         rows = self._read("SELECT id, worker_hash FROM contract WHERE worker_hash IS NOT NULL", ())
