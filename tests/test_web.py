@@ -703,6 +703,19 @@ def test_each_turno_carries_its_rimborso(tmp_path: Path) -> None:
     netto = slip.split('<td colspan="3">Netto</td><td>')[1].split(" €")[0]
     da_pagare = slip.split('<td colspan="3">Da pagare</td><td>')[1].split(" €")[0]
     assert italian(da_pagare) - italian(netto) == Decimal("10.72")
+    # The afternoon was done with the employer's car: no rimborso for it.
+    r = c.post("/turni/auto", data={"giorno": "2026-10-13", "mattina": "0", "datore": "1"})
+    assert r.status_code == 303
+    page = c.get("/mese/2026/10").text
+    assert page.count("trasferta 12,00 km, 5,36 €") == 1
+    assert "auto del datore, niente trasferta" in page
+    assert "Trasferte del mese: 1 turni, 12,00 km," in page and "rimborso 5,36 €" in page
+    # And back to hers.
+    c.post("/turni/auto", data={"giorno": "2026-10-13", "mattina": "0", "datore": "0"})
+    assert "rimborso 10,72 €" in c.get("/mese/2026/10").text
+    # Only the employer says whose car it was.
+    w = TestClient(c.app, headers=basic(WORKER), follow_redirects=False)
+    assert w.post("/turni/auto", data={}).status_code == 403
 
 
 def italian(amount: str) -> Decimal:

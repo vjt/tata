@@ -24,10 +24,11 @@ shows it below the netto: **netto** stays lordo − trattenute, **da pagare** = 
 
 ## Where it shows
 
-- Cartellino (month page): each turno with its km and euro, and the month's totals.
+- Cartellino (month page): each turno with its km and euro, and the month's totals; the
+  employer's *auto del datore* / *auto sua* toggle per turno (not in a finalized month).
 - Prospetto (page and PDF): a line under the netto, and the amount to pay.
 
 ## Out of scope
 
-Telling the worker's car from the employer's (no GPS): every turno is reimbursed, and a turno
-done with the employer's car is not modelled.
+Telling the worker's car from the employer's automatically (no GPS). Her car is the default;
+the employer marks by hand, on the cartellino, a turno done with his car: it pays no rimborso.

@@ -63,7 +63,8 @@ Calc modules never touch the DB; the store never computes.
 - **Rimborso trasferte per turno** (half-day with a closed punch, at most two a day): km per
   turno × ACI €/km, both from the env (`TATA_RIMBORSO_*`, runtime data). Trasferta fuori comune,
   not income (art. 51 c.5 TUIR): outside lordo, INPS, TFR, attestazione; netto stays lordo −
-  trattenute, `da_pagare` = netto + rimborso.
+  trattenute, `da_pagare` = netto + rimborso. Her car by default; the employer marks a turno
+  done with his car (`employer_car`), which pays nothing.
 - **Wifi presence proposes, never records.** `/presenza` reads the worker's phone tracker from
   Home Assistant (eve: `not_home` comes 120 s after the last sighting) and proposes punches by
   shift: morning = first arrival 07:30–08:15 to the last departure before noon, + 30 min only if

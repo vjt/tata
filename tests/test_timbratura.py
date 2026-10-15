@@ -191,7 +191,10 @@ def test_a_turno_is_a_half_day_with_a_closed_punch() -> None:
         Punch(id=4, day=wed, start=480, end=None),  # open: not yet a trip
         Punch(id=5, day=date(2026, 11, 2), start=480, end=525),  # another month
     ]
-    assert [(t.day, t.morning, t.punch_id) for t in turni(punches, 2026, 10)] == [
-        (TUE, True, 1),
-        (TUE, False, 2),
+    assert [(t.day, t.morning, t.punch_id, t.own_car) for t in turni(punches, set(), 2026, 10)] == [
+        (TUE, True, 1, True),
+        (TUE, False, 2, True),
     ]
+    # The afternoon done with the employer's car: still a turno, no longer hers.
+    by_car = turni(punches, {(TUE, False)}, 2026, 10)
+    assert [t.own_car for t in by_car] == [True, False]

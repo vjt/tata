@@ -46,7 +46,7 @@ from tata.models import (
     Punch,
     Span,
 )
-from tata.payslip import Payslip, compute_payslip, rimborso_line
+from tata.payslip import Payslip, compute_payslip, rimborso_line, trip_cost
 from tata.pdf import render_pdf
 from tata.presenza import History, presence_days
 from tata.rates import RatesBook
@@ -294,8 +294,8 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             events = paid_events(contract, year, month)
             rimborso = None
             if settings.mileage is not None:
-                trips = len(turni(store.punches(), year, month))
-                rimborso = rimborso_line(settings.mileage, trips)
+                month_turni = turni(store.punches(), store.employer_car(), year, month)
+                rimborso = rimborso_line(settings.mileage, sum(t.own_car for t in month_turni))
             return compute_payslip(contract, events, year, month, book.get(year), rimborso)
 
         return get
@@ -387,8 +387,11 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "kinds": list(EventKind),
                 "slip": slip,
                 "planned": planned,
-                "trips": {t.punch_id for t in turni(store.punches(), year, month)},
+                "trips": {
+                    t.punch_id: t for t in turni(store.punches(), store.employer_car(), year, month)
+                },
                 "mileage": settings.mileage,
+                "trip_cost": trip_cost(settings.mileage) if settings.mileage else None,
                 "punches": [
                     p for p in store.punches() if (p.day.year, p.day.month) == (year, month)
                 ],
@@ -444,6 +447,14 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         if day == now().date():
             return RedirectResponse("/timbra", status_code=303)
         return RedirectResponse(f"/mese/{day.year}/{day.month}", status_code=303)
+
+    @app.post("/turni/auto")
+    async def turno_car(request: Request) -> RedirectResponse:
+        """Whose car a turno was done with: the employer's pays no rimborso."""
+        form = await request.form()
+        day = date.fromisoformat(_field(form, "giorno"))
+        store.set_employer_car(day, _field(form, "mattina") == "1", _field(form, "datore") == "1")
+        return RedirectResponse(f"/mese/{day.year}/{day.month}#cartellino", status_code=303)
 
     @app.post("/timbrature/{punch_id}/elimina")
     def delete_punch(punch_id: int) -> RedirectResponse:

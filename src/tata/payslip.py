@@ -251,11 +251,16 @@ def _employed_in(contract: Contract, year: int, month: int) -> bool:
     return contract.assunzione <= last and (ends is None or ends >= first)
 
 
+def trip_cost(mileage: Mileage) -> Decimal:
+    """One turno's rimborso: km x €/km, rounded once."""
+    return euro(mileage.km_turno * mileage.euro_km)
+
+
 def rimborso_line(mileage: Mileage, turni: int) -> Line | None:
     """Rimborso trasferte for `turni` trips: km x €/km per turno, rounded once (spec)."""
     if not turni:
         return None
-    per_turno = euro(mileage.km_turno * mileage.euro_km)
+    per_turno = trip_cost(mileage)
     return Line(
         voce="Rimborso trasferte (non imponibile)",
         quantita=Decimal(turni),

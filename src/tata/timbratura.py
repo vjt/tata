@@ -46,15 +46,22 @@ class Turno(Frozen):
     day: date
     morning: bool
     punch_id: int  # the punch that opened it
+    own_car: bool  # hers by default; with the employer's car there is no rimborso
 
 
-def turni(punches: list[Punch], year: int, month: int) -> list[Turno]:
-    """The month's turni: at most a morning and an afternoon a day, however many punches."""
+def turni(
+    punches: list[Punch], employer_car: set[tuple[date, bool]], year: int, month: int
+) -> list[Turno]:
+    """The month's turni: at most a morning and an afternoon a day, however many punches.
+
+    `employer_car`: the (day, morning) turni done with the employer's car.
+    """
     result: dict[tuple[date, bool], Turno] = {}
     for p in sorted(punches, key=lambda p: (p.day, p.start)):
         if p.end is not None and (p.day.year, p.day.month) == (year, month):
             key = (p.day, p.start < NOON)
-            result.setdefault(key, Turno(day=p.day, morning=key[1], punch_id=p.id))
+            own = key not in employer_car
+            result.setdefault(key, Turno(day=p.day, morning=key[1], punch_id=p.id, own_car=own))
     return list(result.values())
 
 

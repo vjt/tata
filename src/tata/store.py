@@ -50,6 +50,11 @@ CREATE TABLE IF NOT EXISTS punch_event (
     event_id INTEGER PRIMARY KEY,
     punch_id INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS employer_car (
+    day TEXT NOT NULL,
+    morning INTEGER NOT NULL,
+    PRIMARY KEY (day, morning)
+);
 CREATE UNIQUE INDEX IF NOT EXISTS one_open_punch ON punch ((stop IS NULL)) WHERE stop IS NULL;
 """
 
@@ -242,6 +247,22 @@ class Store:
     def _refuse_if_final(self, day: date) -> None:
         if self.final_payslip(day.year, day.month) is not None:
             raise ValueError(f"il mese {day.month}/{day.year} è già finalizzato")
+
+    # ---- turni done with the employer's car: no rimborso trasferte
+
+    def employer_car(self) -> set[tuple[date, bool]]:
+        """(day, morning) of the turni done with the employer's car."""
+        rows = self._read("SELECT day, morning FROM employer_car", ())
+        return {(date.fromisoformat(str(day)), bool(morning)) for day, morning in rows}
+
+    def set_employer_car(self, day: date, morning: bool, employer: bool) -> None:
+        self._refuse_if_final(day)
+        key = (day.isoformat(), int(morning))
+        with closing(sqlite3.connect(self._path)) as db, db:
+            if employer:
+                db.execute("INSERT OR IGNORE INTO employer_car (day, morning) VALUES (?, ?)", key)
+            else:
+                db.execute("DELETE FROM employer_car WHERE day = ? AND morning = ?", key)
 
     # ---- INPS payments
 

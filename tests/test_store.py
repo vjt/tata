@@ -161,3 +161,17 @@ def test_saving_the_contract_refuses_extras_of_a_finalized_month(tmp_path: Path)
         s.save_contract(worker, {p.id: [span("15:45-16:00")]})
     assert s.contract() is None
     assert s.events() == []
+
+
+def test_employer_car_round_trip_and_finalized_month(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    tue = date(2026, 10, 13)
+    s.set_employer_car(tue, False, True)
+    s.set_employer_car(tue, False, True)  # idempotent
+    assert s.employer_car() == {(tue, False)}
+    s.set_employer_car(tue, False, False)
+    assert s.employer_car() == set()
+    worker = standard_contract(date(2026, 10, 12))
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), None))
+    with pytest.raises(ValueError, match="finalizzato"):
+        s.set_employer_car(tue, True, True)

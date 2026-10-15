@@ -103,7 +103,16 @@
   {% for p in punches %}
     <li{% if p.end is not none and p.end - p.start > 480 %} class="long"{% endif %}>
       <span>{{ p.day | dmy }} · {% if p.end is none %}dalle {{ p.start | ore }} (aperta){% else %}{{ p.span() }}{% endif %}
-        {% if slip.rimborso and p.id in trips %} · trasferta {% if mileage %}{{ mileage.km_turno | num }} km, {% endif %}{{ slip.rimborso.tariffa | eur }}{% endif %}</span>
+        {% set t = trips.get(p.id) %}
+        {% if t and mileage %} · {% if t.own_car %}trasferta {{ mileage.km_turno | num }} km, {{ trip_cost | eur }}{% else %}auto del datore, niente trasferta{% endif %}{% endif %}</span>
+      {% if t and mileage and employer and not final %}
+      <form method="post" action="/turni/auto">
+        <input type="hidden" name="giorno" value="{{ t.day.isoformat() }}">
+        <input type="hidden" name="mattina" value="{{ 1 if t.morning else 0 }}">
+        <input type="hidden" name="datore" value="{{ 1 if t.own_car else 0 }}">
+        <button class="link">{% if t.own_car %}auto del datore{% else %}auto sua{% endif %}</button>
+      </form>
+      {% endif %}
       {% if employer and not final %}
       <form method="post" action="/timbrature/{{ p.id }}/elimina"><button class="link">elimina</button></form>
       {% endif %}
