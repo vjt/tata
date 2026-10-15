@@ -75,12 +75,18 @@ Nella pagina del mese:
 **Presenza dal wifi** (facoltativa): `/presenza` legge da Home Assistant la storia del
 `device_tracker` del telefono della lavoratrice (ad esempio quello di
 eve/openwrt-presence, che segna `not_home` 120 secondi dopo l'ultimo
-aggancio) e propone le timbrature:
+aggancio) e propone le timbrature per turni:
 
-- **mattina** (arrivo prima delle 12): dall'aggancio alla wifi fino all'uscita + 30 minuti
-  (il tragitto per portare i bambini a scuola);
-- **pomeriggio**: dalle 16:00 (uscita da scuola), o dall'arrivo se è prima, fino all'uscita;
-  un secondo rientro nel pomeriggio conta dal suo arrivo.
+- **mattina**: dal primo arrivo tra le 7:30 e le 8:15 all'ultima uscita prima di mezzogiorno,
+  + 30 minuti se quell'uscita è entro le 8:15 (il tragitto per portare i bambini a scuola);
+  un rientro dopo la scuola è assorbito e fa cadere i 30 minuti;
+- **pomeriggio**: dalle 15:45 (uscita da scuola), o dall'arrivo se è prima, all'ultima uscita;
+  gli arrivi dopo le 15:45 non spostano nulla.
+
+Le uscite e i rientri in mezzo a un turno sono ignorati. Le eccezioni (malattia, orari
+cambiati) non sono regole: la giornata che non torna (nessun arrivo tra 7:30 e 8:15, uscita
+fuori turno, turno senza uscita, uscita ignota) è segnata *da controllare* e va registrata a
+mano.
 
 Niente viene registrato da solo: ogni proposta ha il suo pulsante *registra*, che passa dalla
 stessa strada della timbratura a mano (validazione, EXTRA, vuoti da confermare). I riavvii di

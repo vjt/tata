@@ -457,12 +457,12 @@ class FakeHomeAssistant:
         return self.history
 
 
-# Thu 15/10: home 07:55, not_home 08:20 (left 08:18); home 16:31, not_home 18:05 (left 18:03).
+# Thu 15/10: home 07:55, not_home 08:14 (left 08:12); home 16:31, not_home 18:05 (left 18:03).
 A_DAY = History(
     initial=Seen.AWAY,
     changes=[
         Change(at=rome(2026, 10, 15, 7, 55), seen=Seen.HOME),
-        Change(at=rome(2026, 10, 15, 8, 20), seen=Seen.AWAY),
+        Change(at=rome(2026, 10, 15, 8, 14), seen=Seen.AWAY),
         Change(at=rome(2026, 10, 15, 16, 31), seen=Seen.HOME),
         Change(at=rome(2026, 10, 15, 18, 5), seen=Seen.AWAY),
     ],
@@ -483,13 +483,13 @@ def test_presence_page_proposes_and_records_on_confirmation(tmp_path: Path) -> N
     ha = FakeHomeAssistant(A_DAY)
     c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), ha)
     page = c.get("/presenza/2026/10").text
-    # Morning: 07:55 to 08:18 + 30 = 08:48. Afternoon: 16:00 (d'ufficio) to 18:03.
-    assert "07:55-08:48" in page
-    assert "16:00-18:03" in page
+    # Morning: 07:55 to 08:12 + 30 = 08:42 (left by 08:15). Afternoon: 15:45 to 18:03.
+    assert "07:55-08:42" in page
+    assert "15:45-18:03" in page
     assert ha.asked == [(rome(2026, 10, 1, 0, 0), rome(2026, 10, 15, 19, 0))]
     # Nothing is recorded until confirmed.
-    assert "07:55-08:48" not in c.get("/mese/2026/10").text.split('id="cartellino"')[1]
-    for inizio, fine in (("07:55", "08:48"), ("16:00", "18:03")):
+    assert "07:55-08:42" not in c.get("/mese/2026/10").text.split('id="cartellino"')[1]
+    for inizio, fine in (("07:55", "08:42"), ("15:45", "18:03")):
         r = c.post(
             "/timbrature",
             data={
@@ -502,17 +502,17 @@ def test_presence_page_proposes_and_records_on_confirmation(tmp_path: Path) -> N
         assert r.headers["location"] == "/presenza/2026/10"
     page = c.get("/presenza/2026/10").text
     assert page.count("registrata") == 2
-    # Week of 12/10: 53 min + 2 h 03 min = 2:56.
-    assert "2:56" in page
-    assert "07:55-08:48" in c.get("/mese/2026/10").text.split('id="cartellino"')[1]
+    # Week of 12/10: 47 min + 2 h 18 min = 3:05.
+    assert "3:05" in page
+    assert "07:55-08:42" in c.get("/mese/2026/10").text.split('id="cartellino"')[1]
 
 
 def test_presence_proposal_ending_after_now_cannot_be_confirmed_yet(tmp_path: Path) -> None:
     ha = FakeHomeAssistant(A_DAY)
     page = presence_client(tmp_path, rome(2026, 10, 15, 8, 30), ha).get("/presenza/2026/10")
-    assert "07:55-08:48" in page.text
-    assert "dalle 8:48" in page.text
-    assert 'value="8:48"' not in page.text
+    assert "07:55-08:42" in page.text
+    assert "dalle 8:42" in page.text
+    assert 'value="8:42"' not in page.text
 
 
 def test_presence_page_without_home_assistant(tmp_path: Path) -> None:

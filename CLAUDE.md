@@ -58,8 +58,10 @@ Calc modules never touch the DB; the store never computes.
   art. 1206 c.c.). Derived from the first punch on; a month with shortfalls or an open punch
   cannot be finalized.
 - **Wifi presence proposes, never records.** `/presenza` reads the worker's phone tracker from
-  Home Assistant (eve: `not_home` comes 120 s after the last sighting) and proposes punches:
-  morning = join to departure + 30 min, afternoon = 16:00 (or the earlier arrival) to departure.
+  Home Assistant (eve: `not_home` comes 120 s after the last sighting) and proposes punches by
+  shift: morning = first arrival 07:30–08:15 to the last departure before noon, + 30 min only if
+  that is by 08:15; afternoon = 15:45 (or the earlier arrival) to the last departure. Moves in
+  between are ignored; exceptions are not rules: a day that doesn't fit is flagged anomalous.
   Each is confirmed through the ordinary punch path. Restart blips (`unavailable`) are not
   departures; a stay with an unknown arrival or end is never proposed.
 - **Validate on write.** Events and contract changes are checked against the calculators before

@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from tata.presenza import Change, History, PresenceDay, Seen, Session, presence_days
+from tata.presenza import Anomaly, Change, History, PresenceDay, Seen, Session, presence_days
 from tests.helpers import span
 
 ROME = ZoneInfo("Europe/Rome")
@@ -25,23 +25,64 @@ def one_day(h: History) -> PresenceDay:
 HOME, AWAY, UNKNOWN = Seen.HOME, Seen.AWAY, Seen.UNKNOWN
 
 
-def test_morning_ends_thirty_minutes_after_she_leaves() -> None:
-    # Joins the wifi 07:52:40, not_home published 08:19:30 = last seen 08:17:30 (eve's 120 s
-    # departure timeout). Proposal: 07:52 to 08:17 + 30 min = 08:47.
-    d = one_day(history(AWAY, ("07:52:40", HOME), ("08:19:30", AWAY)))
-    assert d.sessions == [Session(arrival=7 * 60 + 52, departure=8 * 60 + 17, lost=False)]
-    assert d.proposals == [span("07:52-08:47")]
+def test_morning_ends_thirty_minutes_after_she_leaves_by_eight_fifteen() -> None:
+    # Joins the wifi 07:52:40, not_home published 08:14:30 = last seen 08:12:30 (eve's 120 s
+    # departure timeout). Left by 08:15: the school run on foot, 08:12 + 30 = 08:42.
+    d = one_day(history(AWAY, ("07:52:40", HOME), ("08:14:30", AWAY)))
+    assert d.sessions == [Session(arrival=7 * 60 + 52, departure=8 * 60 + 12, lost=False)]
+    assert d.proposals == [span("07:52-08:42")]
+    assert d.anomalies == []
 
 
-def test_afternoon_starts_at_sixteen_and_ends_when_she_leaves_without_extra() -> None:
-    # Home with the children 16:28:05; not_home 18:04:10 = left 18:02:10. No +30 after 12:00.
-    d = one_day(history(AWAY, ("16:28:05", HOME), ("18:04:10", AWAY)))
-    assert d.proposals == [span("16:00-18:02")]
+def test_morning_departure_after_eight_fifteen_has_no_tail() -> None:
+    # not_home 08:18:00 = left 08:16, past 08:15: no + 30.
+    d = one_day(history(AWAY, ("07:55:00", HOME), ("08:18:00", AWAY)))
+    assert d.proposals == [span("07:55-08:16")]
 
 
-def test_afternoon_arrival_before_sixteen_counts_from_the_arrival() -> None:
-    d = one_day(history(AWAY, ("15:40:00", HOME), ("18:02:00", AWAY)))
-    assert d.proposals == [span("15:40-18:00")]
+def test_morning_return_is_absorbed_and_drops_the_tail() -> None:
+    # Leaves 08:10, back 08:50 (took the employer's car), leaves 09:28: one punch to the last
+    # departure, past 08:15 so no + 30; the 08:10-08:50 gap is ignored.
+    d = one_day(
+        history(
+            AWAY,
+            ("07:50:00", HOME),
+            ("08:12:00", AWAY),
+            ("08:50:00", HOME),
+            ("09:30:00", AWAY),
+        )
+    )
+    assert d.proposals == [span("07:50-09:28")]
+    assert d.anomalies == []
+
+
+def test_afternoon_arrival_after_a_quarter_to_four_starts_at_a_quarter_to_four() -> None:
+    # Straight to school, home with the children 16:28, out for a walk 17:00-17:30 (ignored),
+    # not_home 18:04:10 = left 18:02. Start fixed at 15:45; no + 30 after noon.
+    d = one_day(
+        history(
+            AWAY,
+            ("16:28:05", HOME),
+            ("17:02:00", AWAY),
+            ("17:30:00", HOME),
+            ("18:04:10", AWAY),
+        )
+    )
+    assert d.proposals == [span("15:45-18:02")]
+
+
+def test_afternoon_arrival_before_a_quarter_to_four_counts_from_the_arrival() -> None:
+    # Passes by the house 15:20, leaves 15:33 for the school, back 16:30, leaves 18:00.
+    d = one_day(
+        history(
+            AWAY,
+            ("15:20:00", HOME),
+            ("15:35:00", AWAY),
+            ("16:30:00", HOME),
+            ("18:02:00", AWAY),
+        )
+    )
+    assert d.proposals == [span("15:20-18:00")]
 
 
 def test_a_normal_day_gives_two_punches() -> None:
@@ -49,54 +90,73 @@ def test_a_normal_day_gives_two_punches() -> None:
         history(
             AWAY,
             ("07:55:00", HOME),
-            ("08:20:00", AWAY),
+            ("08:14:00", AWAY),
             ("16:31:00", HOME),
             ("18:05:00", AWAY),
         )
     )
-    assert d.proposals == [span("07:55-08:48"), span("16:00-18:03")]
+    assert d.proposals == [span("07:55-08:42"), span("15:45-18:03")]
+    assert d.anomalies == []
 
 
-def test_second_afternoon_visit_counts_from_its_own_arrival() -> None:
-    # Only the first afternoon arrival is backdated to 16:00.
+def test_no_arrival_in_the_morning_window_is_anomalous() -> None:
+    # Arrives 08:40 (late): no morning start, so no morning punch and her 09:30 departure is
+    # outside every shift. The afternoon is still proposed.
     d = one_day(
         history(
             AWAY,
-            ("16:30:00", HOME),
-            ("17:10:00", AWAY),
-            ("17:40:00", HOME),
-            ("18:10:00", AWAY),
-        )
-    )
-    assert d.proposals == [span("16:00-17:08"), span("17:40-18:08")]
-
-
-def test_overlapping_morning_visits_merge() -> None:
-    # Leaves 08:15 (+30 = 08:45), comes back 08:40 to drop a bag, leaves 08:50 (+30 = 09:20).
-    d = one_day(
-        history(
-            AWAY,
-            ("07:50:00", HOME),
-            ("08:17:00", AWAY),
             ("08:40:00", HOME),
-            ("08:52:00", AWAY),
+            ("09:32:00", AWAY),
+            ("16:30:00", HOME),
+            ("18:02:00", AWAY),
         )
     )
-    assert d.proposals == [span("07:50-09:20")]
+    assert d.proposals == [span("15:45-18:00")]
+    assert d.anomalies == [Anomaly.NO_MORNING, Anomaly.STRAY]
 
 
-def test_still_home_gives_no_proposal() -> None:
-    d = one_day(history(AWAY, ("16:30:00", HOME)))
-    assert d.sessions == [Session(arrival=16 * 60 + 30, departure=None, lost=False)]
+def test_departure_before_the_morning_start_is_outside_every_shift() -> None:
+    # In and out 07:00-07:10, then the real arrival 07:50.
+    d = one_day(
+        history(
+            AWAY,
+            ("07:00:00", HOME),
+            ("07:12:00", AWAY),
+            ("07:50:00", HOME),
+            ("08:12:00", AWAY),
+        )
+    )
+    assert d.proposals == [span("07:50-08:40")]
+    assert d.anomalies == [Anomaly.STRAY]
+
+
+def test_morning_ending_past_noon_is_not_proposed() -> None:
+    # Home 07:50 to 12:30 (a child sick at home): the morning has no end before noon.
+    d = one_day(history(AWAY, ("07:50:00", HOME), ("12:32:00", AWAY)))
     assert d.proposals == []
+    assert d.anomalies == [Anomaly.NO_END]
 
 
-def test_home_since_before_midnight_gives_no_proposal() -> None:
-    # Stale "home" from the previous day (eve keeps a dozing phone home up to 18 h): the
-    # arrival is unknown, so nothing is proposed; the employer enters the punch by hand.
+def test_home_all_day_is_anomalous() -> None:
+    d = one_day(history(AWAY, ("07:50:00", HOME)))
+    assert d.proposals == []
+    assert d.anomalies == [Anomaly.NO_END]
+
+
+def test_still_home_in_the_afternoon_gives_no_afternoon_proposal() -> None:
+    d = one_day(history(AWAY, ("07:50:00", HOME), ("08:12:00", AWAY), ("16:30:00", HOME)))
+    assert d.sessions[-1] == Session(arrival=16 * 60 + 30, departure=None, lost=False)
+    assert d.proposals == [span("07:50-08:40")]
+    assert d.anomalies == [Anomaly.NO_END]
+
+
+def test_home_since_before_midnight_is_anomalous() -> None:
+    # Stale "home" from the previous day (eve keeps a dozing phone home up to 18 h): no
+    # arrival in the window, and the departure belongs to no shift.
     d = one_day(history(HOME, ("08:20:00", AWAY)))
     assert d.sessions == [Session(arrival=None, departure=8 * 60 + 18, lost=False)]
     assert d.proposals == []
+    assert d.anomalies == [Anomaly.NO_MORNING, Anomaly.STRAY]
 
 
 def test_restart_blip_while_home_is_not_a_departure() -> None:
@@ -111,7 +171,8 @@ def test_restart_blip_while_home_is_not_a_departure() -> None:
             ("18:02:00", AWAY),
         )
     )
-    assert d.proposals == [span("16:00-18:00")]
+    assert d.proposals == [span("15:45-18:00")]
+    assert d.anomalies == [Anomaly.NO_MORNING]  # afternoon only: no morning arrival
 
 
 def test_departure_during_a_restart_has_no_known_time() -> None:
@@ -119,6 +180,7 @@ def test_departure_during_a_restart_has_no_known_time() -> None:
     d = one_day(history(AWAY, ("16:30:00", HOME), ("17:00:00", UNKNOWN), ("17:00:01", AWAY)))
     assert d.sessions == [Session(arrival=16 * 60 + 30, departure=None, lost=True)]
     assert d.proposals == []
+    assert d.anomalies == [Anomaly.NO_MORNING, Anomaly.LOST]
 
 
 def test_restart_while_away_is_nothing() -> None:
@@ -148,13 +210,13 @@ def test_changes_in_utc_are_read_in_rome_time() -> None:
         initial=AWAY,
         changes=[
             Change(at=datetime(2026, 10, 15, 5, 52, tzinfo=UTC), seen=HOME),
-            Change(at=datetime(2026, 10, 15, 6, 19, 30, tzinfo=UTC), seen=AWAY),
+            Change(at=datetime(2026, 10, 15, 6, 14, 30, tzinfo=UTC), seen=AWAY),
         ],
     )
-    assert one_day(h).proposals == [span("07:52-08:47")]
+    assert one_day(h).proposals == [span("07:52-08:42")]
 
 
 def test_quiet_days_are_listed_empty() -> None:
     days = presence_days(History(initial=AWAY, changes=[]), DAY, DAY + timedelta(days=2))
     assert [d.day for d in days] == [DAY, DAY + timedelta(days=1), DAY + timedelta(days=2)]
-    assert all(d.sessions == [] for d in days)
+    assert all(d.sessions == [] and d.anomalies == [] for d in days)

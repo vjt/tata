@@ -5,8 +5,10 @@
 
 <section class="card">
   <h2>Proposte dal wifi</h2>
-  <p class="hint">Mattina: dall'aggancio alla wifi fino all'uscita + 30 minuti. Pomeriggio: dalle 16:00
-    (o dall'arrivo, se prima) fino all'uscita. Niente viene registrato finché non confermi.</p>
+  <p class="hint">Mattina: dal primo arrivo tra 7:30 e 8:15 all'ultima uscita prima di mezzogiorno,
+    + 30 minuti se è entro le 8:15. Pomeriggio: dalle 15:45 (o dall'arrivo, se prima) all'ultima
+    uscita. Le giornate che non tornano sono segnate e vanno registrate a mano. Niente viene
+    registrato finché non confermi.</p>
   {% if days %}
   <ul class="events">
   {% for d in days %}
@@ -17,6 +19,7 @@
           →
           {% if s.lost %}uscita ignota (Home Assistant giù){% elif s.departure is none %}in casa{% else %}{{ s.departure | ore }}{% endif %}{% if not loop.last %};{% endif %}
         {% endfor %}
+        {% if d.anomalies %}<br><strong>da controllare:</strong> {{ d.anomalies | join(", ") }}{% endif %}
       </span>
       <span class="actions">
       {% for p in d.proposals %}
