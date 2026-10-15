@@ -90,8 +90,9 @@ def shortfalls(
 def unpunched(
     contract: Contract, events: list[Event], punches: list[Punch], year: int, month: int
 ) -> list[Event]:
-    """Only punched time is paid: the month's scheduled time no punch and no event covers
-    (gaps still to confirm, days still to come), as unstored ASSENZA. No punch, no pay.
+    """Only punched time is paid: the scheduled time from the hire to the end of the month no
+    punch and no event covers (gaps still to confirm, days still to come), as unstored
+    ASSENZA. No punch, no pay. The earlier months are there for the 13ma, which sums them.
 
     Confirming a gap as MORA or PERMESSO is what pays it.
     """
@@ -99,7 +100,6 @@ def unpunched(
     return [
         Event(id=0, day=s.day, kind=EventKind.ASSENZA, span=s.span, note="non timbrato")
         for s in shortfalls(contract, events, punches, datetime.combine(next_month, time(0)))
-        if (s.day.year, s.day.month) == (year, month)
     ]
 
 

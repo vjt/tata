@@ -36,8 +36,12 @@ def test_october_2026_full_month() -> None:
     assert slip.trattenuta_inps == Decimal("29.46")
     assert slip.trattenuta_cassa_colf == Decimal("1.37")
     assert slip.netto == Decimal("576.08")
-    # 13ma accrued Jan-Oct: 575,90 x 10/12 = 479,916 -> 479,92
-    assert slip.tredicesima_maturata == Decimal("479.92")
+    # 13ma accrued Jan-Oct, 1/12 of the lordo earned (art. 39). Per month, weekdays not
+    # festività x 3 h x 8,86 + festività x 2,5 h x 8,86 (Easter Monday 6/4, patrono 24/6):
+    # Jan 20+2 575,90; Feb 20 531,60; Mar 22 584,76; Apr 21+2 602,48; May 20+1 553,75;
+    # Jun 20+2 575,90; Jul 23 611,34; Aug 21+1 580,33; Sep 22 584,76; Oct 22+1 606,91
+    # = 5807,73 / 12 = 483,977 -> 483,98
+    assert slip.tredicesima_maturata == Decimal("483.98")
     # ferie: 26/12 x 10 months = 21,67 days
     assert slip.ferie_maturate == Decimal("21.67")
     assert slip.ferie_godute == 0
@@ -79,8 +83,8 @@ def test_october_2026_hired_on_the_12th() -> None:
     assert [li.voce for li in slip.lines] == ["Ore ordinarie"]
     # 45 x 0,43 = 19,35 ; 45 x 0,02 = 0,90
     assert slip.netto == Decimal("378.45")
-    # 20 days of service in October >= 15: a whole month (CCNL chiarimento 4)
-    assert slip.tredicesima_maturata == Decimal("47.99")
+    # 1/12 of what she earned: 398,70 / 12 = 33,225 -> 33,23
+    assert slip.tredicesima_maturata == Decimal("33.23")
     assert slip.ferie_maturate == Decimal("2.17")
 
 
@@ -90,13 +94,15 @@ def test_december_2026_pays_tredicesima() -> None:
     assert line(slip, "Ore ordinarie") == Decimal("558.18")
     # festività 8, 25, 26 Dec: 3 x 2,5 h = 7,5 h x 8,86 = 66,45
     assert line(slip, "Festività") == Decimal("66.45")
-    # Oct, Nov, Dec: 575,90 x 3/12 = 143,975 -> 143,98
-    assert line(slip, "Tredicesima") == Decimal("143.98")
-    assert slip.lordo == Decimal("768.61")
+    # 1/12 of the lordo of Oct 398,70 + Nov (21 x 3 h + 1/11 festività x 2,5 h) 580,33
+    # + Dec 558,18 + 66,45 = 624,63 -> 1603,66 / 12 = 133,638 -> 133,64
+    assert line(slip, "Tredicesima") == Decimal("133.64")
+    assert slip.lordo == Decimal("758.27")
     # the tredicesima carries no INPS hours: 63 + 7,5 = 70,5 ; x 0,43 = 30,315 -> 30,32
     assert slip.ore_retribuite == Decimal("70.50")
     assert slip.trattenuta_inps == Decimal("30.32")
-    assert slip.netto == Decimal("736.88")
+    # 758,27 - 30,32 - 70,5 x 0,02 (1,41) = 726,54
+    assert slip.netto == Decimal("726.54")
 
 
 def test_ferie_week_costs_the_same_as_a_working_week() -> None:
@@ -184,11 +190,12 @@ def test_cessazione_pays_tredicesima_ratei_and_unused_ferie() -> None:
     slip = payslip(worker, [], 2026, 10)
     # weekdays 1-16 Oct = 12 x 3 h = 36 h x 8,86 = 318,96 ; festività 4 Oct 22,15
     assert line(slip, "Ore ordinarie") == Decimal("318.96")
-    # 16 days of service in October count as a month: 10/12 x 575,90 = 479,92
-    assert line(slip, "Tredicesima") == Decimal("479.92")
+    # 1/12 of Jan-Sep (5200,82, see the October test) + Oct 1-16 341,11 = 5541,93 -> 461,83
+    assert line(slip, "Tredicesima") == Decimal("461.83")
     # 26 x 10/12 = 21,667 days x 2,5 h = 54,167 h x 8,86 = 479,92
     assert line(slip, "Ferie non godute") == Decimal("479.92")
-    assert slip.lordo == Decimal("1300.95")
+    # 318,96 + 22,15 + 461,83 + 479,92 = 1282,86
+    assert slip.lordo == Decimal("1282.86")
 
 
 def test_months_after_cessazione_pay_nothing() -> None:

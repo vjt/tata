@@ -219,9 +219,9 @@ def test_attestazione_pdf(tmp_path: Path) -> None:
 
 def test_tfr_advance(tmp_path: Path) -> None:
     c = worked(tmp_path)
-    r = c.post("/anno/2026/anticipi", data={"giorno": "2026-12-20", "importo": "29,45"})
+    r = c.post("/anno/2026/anticipi", data={"giorno": "2026-12-20", "importo": "28,69"})
     assert r.status_code == 303
-    assert "100,00" in c.get("/anno/2026").text  # fund 129,45 - 29,45
+    assert "100,00" in c.get("/anno/2026").text  # fund 128,69 (test_annual) - 28,69
 
 
 def add(c: TestClient, kind: str, dal: str, al: str, inizio: str, fine: str) -> int:
@@ -361,6 +361,8 @@ def test_payslip_pays_only_punched_time(tmp_path: Path) -> None:
     c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
     page = c.get("/mese/2026/10").text
     assert "<td>Ore ordinarie</td><td>2,25 h</td>" in page
+    # The 13ma follows: 2,25 h x 8,86 = 19,935 -> 19,94 ; / 12 = 1,66 (art. 39).
+    assert "<th>Tredicesima maturata nell'anno</th><td>1,66 €</td>" in page
     # Planned, for comparison: the schedule 12-31/10, 15 working days x 3 h = 45 h.
     assert "<td>Ore ordinarie</td><td>45,00 h</td>" in page.split("<h2>Pianificato</h2>")[1]
     c.post(

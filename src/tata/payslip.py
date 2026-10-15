@@ -76,79 +76,35 @@ def compute_payslip(
     monthly = monthly_reference(contract, p)
     days = month_work(contract, events, year, month, rates)
     last_day = days[-1].day
-
-    lines: list[Line] = []
-    paid_minutes = Decimal(0)
-
-    worked: dict[Bucket, int] = {}
-    for d in days:
-        for bucket, minutes in d.buckets.items():
-            worked[bucket] = worked.get(bucket, 0) + minutes
-    for bucket in Bucket:
-        minutes = worked.get(bucket, 0)
-        if minutes:
-            rate = p * (1 + _maggiorazione(bucket, rates))
-            lines.append(_hours_line(LABELS[bucket], Decimal(minutes), rate))
-            paid_minutes += minutes
-
-    holidays = sum(1 for d in days if d.festivita and contract.employed_on(d.day))
-    if holidays:
-        lines.append(_days_line("Festività", holidays, day_share, p))
-        paid_minutes += holidays * day_share
-
-    ferie = sum(1 for d in days if d.ferie)
-    if ferie:
-        lines.append(_days_line("Ferie", ferie, day_share, p))
-        paid_minutes += ferie * day_share
-
-    permesso = sum(d.permesso for d in days)
-    if permesso:
-        lines.append(_hours_line("Permessi retribuiti", Decimal(permesso), p))
-        paid_minutes += permesso
-
     sick = sick_pay(contract, events, rates)
+
+    lines, paid_minutes = _earned(contract, events, year, month, rates, sick)
     month_sick = [d for d in days if d.malattia]
-    for pct, voce in ((Decimal("0.5"), "Malattia 50%"), (Decimal(1), "Malattia 100%")):
-        n = sum(1 for d in month_sick if sick[d.day] == pct)
-        if n:
-            per_day = monthly / DAYS_IN_MONTH_CCNL * pct
-            lines.append(
-                Line(
-                    voce=voce,
-                    quantita=Decimal(n),
-                    unita="gg",
-                    tariffa=euro(per_day),
-                    importo=euro(per_day * n),
-                )
-            )
-    unpaid_sick = sum(1 for d in month_sick if sick[d.day] == 0)
-    if unpaid_sick:
-        lines.append(
-            Line(
-                voce="Malattia non retribuita",
-                quantita=Decimal(unpaid_sick),
-                unita="gg",
-                tariffa=Decimal(0),
-                importo=Decimal(0),
-            )
-        )
-    # INPS hours of a paid sick day: the hours it was scheduled for (none on a festività).
-    paid_minutes += sum(d.scheduled for d in month_sick if sick[d.day] > 0)
     # Art. 2120 c.3 c.c. (CCNL art. 41): TFR counts the full pay of the sick days.
     sick_shortfall = sum(
         (monthly / DAYS_IN_MONTH_CCNL * (1 - sick[d.day]) for d in month_sick), Decimal(0)
     )
 
-    months_this_year = sum(1 for m in range(1, month + 1) if counts_as_month(contract, year, m))
-    tredicesima = euro(monthly * months_this_year / 12)
+    # Art. 39: the 13ma is a month of retribuzione globale di fatto. Hours vary, so it is
+    # 1/12 of what was actually earned in the year so far.
+    earned = sum(li.importo for li in lines) + sum(
+        (
+            li.importo
+            for m in range(1, month)
+            if _employed_in(contract, year, m)
+            for li in _earned(contract, events, year, m, rates, sick)[0]
+        ),
+        Decimal(0),
+    )
+    tredicesima = euro(earned / 12)
     ending = contract.cessazione is not None and days[0].day <= contract.cessazione <= last_day
     if month == 12 or ending:
         lines.append(
             Line(
                 voce="Tredicesima",
-                quantita=Decimal(months_this_year),
-                unita="/12",
-                tariffa=euro(monthly),
+                quantita=earned,
+                unita="€ di lordo nell'anno ÷ 12",
+                tariffa=euro(Decimal(1) / 12),
                 importo=tredicesima,
             )
         )
@@ -198,6 +154,86 @@ def compute_payslip(
         imponibile_tfr=imponibile_tfr,
         tfr_quota=euro(imponibile_tfr / rates.ccnl.tfr_divisore),
     )
+
+
+def _earned(
+    contract: Contract,
+    events: list[Event],
+    year: int,
+    month: int,
+    rates: Rates,
+    sick: dict[date, Decimal],
+) -> tuple[list[Line], Decimal]:
+    """The month's pay for time (hours, festività, ferie, permessi, malattia) and its INPS
+    minutes: the base of the payslip, and of the 13ma of the later months."""
+    p = pay_breakdown(contract, year, month, rates).oraria
+    day_share = Decimal(contract.weekly_minutes()) / 6
+    monthly = monthly_reference(contract, p)
+    days = month_work(contract, events, year, month, rates)
+    lines: list[Line] = []
+    paid_minutes = Decimal(0)
+
+    worked: dict[Bucket, int] = {}
+    for d in days:
+        for bucket, minutes in d.buckets.items():
+            worked[bucket] = worked.get(bucket, 0) + minutes
+    for bucket in Bucket:
+        minutes = worked.get(bucket, 0)
+        if minutes:
+            rate = p * (1 + _maggiorazione(bucket, rates))
+            lines.append(_hours_line(LABELS[bucket], Decimal(minutes), rate))
+            paid_minutes += minutes
+
+    holidays = sum(1 for d in days if d.festivita and contract.employed_on(d.day))
+    if holidays:
+        lines.append(_days_line("Festività", holidays, day_share, p))
+        paid_minutes += holidays * day_share
+
+    ferie = sum(1 for d in days if d.ferie)
+    if ferie:
+        lines.append(_days_line("Ferie", ferie, day_share, p))
+        paid_minutes += ferie * day_share
+
+    permesso = sum(d.permesso for d in days)
+    if permesso:
+        lines.append(_hours_line("Permessi retribuiti", Decimal(permesso), p))
+        paid_minutes += permesso
+
+    month_sick = [d for d in days if d.malattia]
+    for pct, voce in ((Decimal("0.5"), "Malattia 50%"), (Decimal(1), "Malattia 100%")):
+        n = sum(1 for d in month_sick if sick[d.day] == pct)
+        if n:
+            per_day = monthly / DAYS_IN_MONTH_CCNL * pct
+            lines.append(
+                Line(
+                    voce=voce,
+                    quantita=Decimal(n),
+                    unita="gg",
+                    tariffa=euro(per_day),
+                    importo=euro(per_day * n),
+                )
+            )
+    unpaid_sick = sum(1 for d in month_sick if sick[d.day] == 0)
+    if unpaid_sick:
+        lines.append(
+            Line(
+                voce="Malattia non retribuita",
+                quantita=Decimal(unpaid_sick),
+                unita="gg",
+                tariffa=Decimal(0),
+                importo=Decimal(0),
+            )
+        )
+    # INPS hours of a paid sick day: the hours it was scheduled for (none on a festività).
+    paid_minutes += sum(d.scheduled for d in month_sick if sick[d.day] > 0)
+    return lines, paid_minutes
+
+
+def _employed_in(contract: Contract, year: int, month: int) -> bool:
+    first = date(year, month, 1)
+    last = date(year + month // 12, month % 12 + 1, 1) - timedelta(days=1)
+    ends = contract.cessazione
+    return contract.assunzione <= last and (ends is None or ends >= first)
 
 
 def pay_breakdown(contract: Contract, year: int, month: int, rates: Rates) -> Paga:

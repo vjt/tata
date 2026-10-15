@@ -31,7 +31,7 @@ niente 770.
 | Permessi retribuiti | 12 h l'anno da 30 h settimanali in su, in proporzione sotto e per mesi di servizio | art. 19 |
 | Malattia | 8/10/15 giorni pagati su 365 in base all'anzianità; 50% fino al 3° giorno consecutivo, poi 100%; 1/30 della paga mensile per giorno di calendario | art. 27, chiarimento 2 |
 | Scatti di anzianità | +4% del minimo ogni biennio, dal mese successivo, massimo 7 | art. 37 |
-| Tredicesima | una mensilità (orario settimanale × 52/12), 1/12 per ogni mese con almeno 15 giorni di servizio | art. 39, chiarimento 4 |
+| Tredicesima | una mensilità di retribuzione globale di fatto: con ore variabili, 1/12 del lordo effettivo dell'anno (ore, festività, ferie, permessi, malattia; esclusa l'indennità per ferie non godute) | art. 39 |
 | TFR | retribuzione annua / 13,5 (in malattia conta la paga piena), rivalutato 1,5% + 75% ISTAT | art. 41, art. 2120 c.c. |
 | Fascia INPS | paga oraria × 13/12 → contributo orario; importo fisso oltre 24 h settimanali | INPS circ. 9/2026 |
 | Cassa Colf | 0,06 €/h, di cui 0,02 a carico del lavoratore | art. 54 |

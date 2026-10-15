@@ -264,7 +264,8 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         return RedirectResponse("/timbra", status_code=303)
 
     def paid_events(contract: Contract, year: int, month: int) -> list[Event]:
-        """The events pay is computed from: the stored ones, and the unpunched time as ASSENZA."""
+        """The events pay is computed from: the stored ones, and the unpunched time as ASSENZA
+        up to the end of the month."""
         events = store.events()
         return events + unpunched(contract, events, store.punches(), year, month)
 

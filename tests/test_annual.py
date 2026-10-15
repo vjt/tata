@@ -71,14 +71,15 @@ def test_tfr_fold_flags_a_missing_coefficient_instead_of_inventing_one() -> None
 def test_tfr_first_year_needs_no_coefficient() -> None:
     worker = standard_contract(date(2026, 10, 12))
     result = tfr(worker, [], 2026, 12, computed_source(worker, [], rates_book()), rates_book())
-    # imponibile Oct 398,70 + Nov 580,33 + Dec 768,61 = 1747,64 ; / 13,5 = 129,455 -> 129,45
-    assert result.anni[0].imponibile == Decimal("1747.64")
-    assert result.fondo == Decimal("129.45")
+    # imponibile Oct 398,70 + Nov 580,33 + Dec 758,27 (with the 13ma, test_payslip)
+    # = 1737,30 ; / 13,5 = 128,688 -> 128,69
+    assert result.anni[0].imponibile == Decimal("1737.30")
+    assert result.fondo == Decimal("128.69")
 
 
 def test_tfr_advance_reduces_the_fund() -> None:
     worker = standard_contract(date(2026, 10, 12))
-    advance = TfrAdvance(id=1, day=date(2026, 12, 20), amount=Decimal("29.45"))
+    advance = TfrAdvance(id=1, day=date(2026, 12, 20), amount=Decimal("28.69"))
     assert tfr(
         worker, [advance], 2026, 12, computed_source(worker, [], rates_book()), rates_book()
     ).fondo == Decimal("100.00")
@@ -88,11 +89,12 @@ def test_attestazione_sums_the_year() -> None:
     worker = standard_contract(date(2026, 10, 12))
     att = attestazione(worker, 2026, computed_source(worker, [], rates_book()))
     assert [s.month for s in att.mesi] == [10, 11, 12]
-    assert att.lordo == Decimal("1747.64")
+    assert att.lordo == Decimal("1737.30")
     # 19,35 + 28,17 + 30,32 ; 0,90 + 1,31 + 1,41
     assert att.trattenute_inps == Decimal("77.84")
     assert att.trattenute_cassa_colf == Decimal("3.62")
-    assert att.netto == Decimal("1666.18")
+    # 1737,30 - 77,84 - 3,62
+    assert att.netto == Decimal("1655.84")
 
 
 def payment(year: int, quarter: int, paid_on: date, datore: str) -> Payment:
