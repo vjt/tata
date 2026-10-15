@@ -1,6 +1,6 @@
 """Cartellino: what the punches imply for payroll, and what the button proposes."""
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from itertools import pairwise
 
@@ -82,6 +82,22 @@ def shortfalls(
         result += [Shortfall(day=day, span=s) for s in _runs(missing)]
         day += timedelta(days=1)
     return result
+
+
+def unpunched(
+    contract: Contract, events: list[Event], punches: list[Punch], year: int, month: int
+) -> list[Event]:
+    """From the first punch on only punched time is paid: the month's scheduled time no punch
+    and no event covers (gaps still to confirm, days still to come), as unstored ASSENZA.
+
+    Confirming a gap as MORA or PERMESSO is what pays it.
+    """
+    next_month = date(year + month // 12, month % 12 + 1, 1)
+    return [
+        Event(id=0, day=s.day, kind=EventKind.ASSENZA, span=s.span, note="non timbrato")
+        for s in shortfalls(contract, events, punches, datetime.combine(next_month, time(0)))
+        if (s.day.year, s.day.month) == (year, month)
+    ]
 
 
 def propose(contract: Contract, punches: list[Punch], now: datetime) -> Proposal:

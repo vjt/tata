@@ -41,7 +41,15 @@ from tata.pdf import render_pdf
 from tata.presenza import History, presence_days
 from tata.rates import RatesBook
 from tata.store import Store
-from tata.timbratura import Action, Shortfall, check_punches, overruns, propose, shortfalls
+from tata.timbratura import (
+    Action,
+    Shortfall,
+    check_punches,
+    overruns,
+    propose,
+    shortfalls,
+    unpunched,
+)
 
 HERE = Path(__file__).parent
 MESI = ("", "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto",
@@ -232,13 +240,17 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         save_punch(contract, Punch(id=open_.id, day=open_.day, start=open_.start, end=end))
         return RedirectResponse("/timbra", status_code=303)
 
-    def source(contract: Contract) -> PayslipSource:
+    def paid_events(contract: Contract, year: int, month: int) -> list[Event]:
+        """The events pay is computed from: the stored ones, and the unpunched time as ASSENZA."""
         events = store.events()
+        return events + unpunched(contract, events, store.punches(), year, month)
 
+    def source(contract: Contract) -> PayslipSource:
         def get(year: int, month: int) -> Payslip:
             final = store.final_payslip(year, month)
             if final is not None:
                 return final
+            events = paid_events(contract, year, month)
             return compute_payslip(contract, events, year, month, book.get(year))
 
         return get
@@ -307,7 +319,8 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         events = store.events()
         rates = book.get(year)
         slip = source(contract)(year, month)
-        work = {d.day: d for d in month_work(contract, events, year, month, rates)}
+        paid = paid_events(contract, year, month)
+        work = {d.day: d for d in month_work(contract, paid, year, month, rates)}
         weeks = calendar.Calendar().monthdatescalendar(year, month)
         month_events = [e for e in events if (e.day.year, e.day.month) == (year, month)]
         prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
@@ -363,7 +376,9 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             raise ValueError(f"c'è una timbratura aperta in {MESI[month]} {year}: chiudila prima")
         if pending(contract, year, month):
             raise ValueError(f"ci sono mancanze da confermare in {MESI[month]} {year}")
-        store.finalize(compute_payslip(contract, store.events(), year, month, book.get(year)))
+        if now().date() < date(year + month // 12, month % 12 + 1, 1):
+            raise ValueError(f"{MESI[month]} {year} non è ancora finito")
+        store.finalize(source(contract)(year, month))
         return RedirectResponse(f"/mese/{year}/{month}", status_code=303)
 
     @app.post("/timbrature")

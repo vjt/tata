@@ -53,10 +53,12 @@ Calc modules never touch the DB; the store never computes.
   > 40–44h 10% > notturno ordinario 20%). Straordinario = beyond 8 h/day or 40 h/week,
   assigned to the chronologically LATEST minutes.
 - **Punches are the cartellino.** Closing a punch writes EXTRA events for time outside the schedule
-  (>5 min), linked to it (deleting the punch deletes them). Shortfalls are proposed, never
-  assumed: the employer confirms each as ASSENZA / PERMESSO / MORA (sent home, paid as scheduled,
-  art. 1206 c.c.). Derived from the first punch on; a month with shortfalls or an open punch
-  cannot be finalized.
+  (>5 min), linked to it (deleting the punch deletes them). From the first punch on, only
+  punched time is paid: scheduled time no punch or event covers (shortfalls, days still to come)
+  counts as unstored ASSENZA (`unpunched`). Shortfalls are still confirmed one by one as
+  ASSENZA / PERMESSO / MORA (sent home, paid as scheduled, art. 1206 c.c.): confirming is what
+  pays PERMESSO and MORA. A month that hasn't ended, or has shortfalls or an open punch, cannot
+  be finalized.
 - **Wifi presence proposes, never records.** `/presenza` reads the worker's phone tracker from
   Home Assistant (eve: `not_home` comes 120 s after the last sighting) and proposes punches by
   shift: morning = first arrival 07:30–08:15 to the last departure before noon, + 30 min only if

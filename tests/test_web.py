@@ -312,6 +312,34 @@ def test_shortfall_is_proposed_and_blocks_finalize_until_confirmed(tmp_path: Pat
     assert "Da confermare" not in c.get("/mese/2026/10").text
 
 
+def test_month_still_running_cannot_be_finalized(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 31, 12, 0))
+    r = c.post("/mese/2026/10/finalizza")
+    assert r.status_code == 400 and "non è ancora finito" in r.text
+
+
+def test_payslip_pays_only_punched_time_from_the_first_punch(tmp_path: Path) -> None:
+    # Hired Mon 12/10, no punch that day: paid as scheduled, 3 h. First punch Tue 13/10
+    # 15:45-18:00 (2 h 15); its 08:00-08:45 gap, still to confirm, and 14-31/10 are unpaid.
+    # Ore ordinarie: 180 + 135 = 315 min = 5,25 h.
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 18, 30))
+    c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
+    assert "<td>Ore ordinarie</td><td>5,25 h</td>" in c.get("/mese/2026/10").text
+    c.post(
+        "/eventi",
+        data={
+            "kind": "mora",
+            "dal": "2026-10-13",
+            "al": "",
+            "inizio": "08:00",
+            "fine": "08:45",
+            "note": "",
+        },
+    )
+    # Sent home 08:00-08:45: paid as scheduled (art. 1206 c.c.), + 45 min = 6,00 h.
+    assert "<td>Ore ordinarie</td><td>6,00 h</td>" in c.get("/mese/2026/10").text
+
+
 def test_stale_open_punch_asks_for_the_exit_time(tmp_path: Path) -> None:
     c, clock = punching(tmp_path, rome(2026, 10, 13, 15, 45))
     c.post("/timbra/inizio")
@@ -333,14 +361,14 @@ def test_stop_in_the_same_minute_is_refused(tmp_path: Path) -> None:
 
 
 def test_shortfalls_of_a_finalized_month_are_ignored(tmp_path: Path) -> None:
-    # October finalized on 20/10; later October spans must not haunt the month page.
-    c, clock = punching(tmp_path, rome(2026, 10, 20, 18, 30))
-    c.post("/timbrature", data={"giorno": "2026-10-20", "inizio": "15:45", "fine": "18:00"})
+    # First punch Fri 30/10, its morning confirmed as MORA; October finalized Mon 2/11 at 07:00.
+    c, clock = punching(tmp_path, rome(2026, 11, 2, 7, 0))
+    c.post("/timbrature", data={"giorno": "2026-10-30", "inizio": "15:45", "fine": "18:00"})
     c.post(
         "/eventi",
         data={
             "kind": "mora",
-            "dal": "2026-10-20",
+            "dal": "2026-10-30",
             "al": "",
             "inizio": "08:00",
             "fine": "08:45",
@@ -384,7 +412,7 @@ def test_punch_longer_than_eight_hours_is_highlighted(tmp_path: Path) -> None:
 
 
 def test_punch_in_a_finalized_month_is_refused(tmp_path: Path) -> None:
-    c, _ = punching(tmp_path, rome(2026, 10, 20, 18, 30))
+    c, _ = punching(tmp_path, rome(2026, 11, 2, 9, 0))
     assert c.post("/mese/2026/10/finalizza").status_code == 303
     r = c.post("/timbrature", data={"giorno": "2026-10-14", "inizio": "15:45", "fine": "18:00"})
     assert r.status_code == 400 and "finalizzato" in r.text

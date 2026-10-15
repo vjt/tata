@@ -12,6 +12,7 @@ from tata.timbratura import (
     overruns,
     propose,
     shortfalls,
+    unpunched,
 )
 from tests.helpers import event, span, standard_contract
 
@@ -148,3 +149,28 @@ def test_festivita_is_never_a_shortfall() -> None:
     mon = date(2026, 12, 7)
     punches = [punch(mon, "08:00-08:45"), punch(mon, "15:45-18:00")]
     assert shortfalls(WORKER, [], punches, at(2026, 12, 8, 20, 0)) == []
+
+
+def test_unpunched_time_of_the_month_is_unpaid_assenza() -> None:
+    # Hired Mon 12/10, first punch Tue 13/10 afternoon only. 12/10 is before the first punch.
+    # From 13/10: the 08:00-08:45 gap still to confirm, then both spans of every working day
+    # 14-30/10 (14, 15, 16, 19-23, 26-30 = 13 days): 1 + 13 x 2 = 27 spans.
+    gaps = unpunched(WORKER, [], [punch(TUE, "15:45-18:00")], 2026, 10)
+    assert all(e.kind is EventKind.ASSENZA for e in gaps)
+    assert len(gaps) == 27
+    assert [(e.day, e.span) for e in gaps[:2]] == [
+        (TUE, span("08:00-08:45")),
+        (date(2026, 10, 14), span("08:00-08:45")),
+    ]
+    assert gaps[-1].day == date(2026, 10, 30)
+
+
+def test_a_confirmed_mora_is_not_unpunched() -> None:
+    mora = event(TUE, EventKind.MORA, "08:00-08:45")
+    gaps = unpunched(WORKER, [mora], [punch(TUE, "15:45-18:00")], 2026, 10)
+    assert (TUE, span("08:00-08:45")) not in [(e.day, e.span) for e in gaps]
+
+
+def test_nothing_is_unpunched_before_the_first_punch() -> None:
+    assert unpunched(WORKER, [], [], 2026, 10) == []
+    assert unpunched(WORKER, [], [punch(date(2026, 11, 2), "15:45-18:00")], 2026, 10) == []
