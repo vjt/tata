@@ -24,7 +24,8 @@
     <a href="{{ base }}/contratto">contratto</a>
     {% endif %}
     {% endif %}
-    {% if not request.state.worker %}<a href="/rapporti">rapporti</a>{% endif %}
+    {% if request.state.logged and not request.state.worker %}<a href="/rapporti">rapporti</a>{% endif %}
+    {% if request.state.logged %}<form method="post" action="/logout" class="inline"><button class="link">esci</button></form>{% endif %}
   </nav>
 </header>
 <main>

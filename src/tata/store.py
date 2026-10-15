@@ -6,7 +6,17 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from tata.models import Contract, Event, EventKind, Payment, Punch, Rapporto, Span, TfrAdvance
+from tata.models import (
+    Contract,
+    Event,
+    EventKind,
+    Payment,
+    Punch,
+    Rapporto,
+    Session,
+    Span,
+    TfrAdvance,
+)
 from tata.payslip import Payslip
 
 SCHEMA = """
@@ -64,8 +74,15 @@ CREATE TABLE IF NOT EXISTS employer_car (
     PRIMARY KEY (contract_id, day, morning)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_open_punch ON punch (contract_id) WHERE stop IS NULL;
+CREATE TABLE IF NOT EXISTS session (
+    token_hash TEXT PRIMARY KEY,
+    contract_id INTEGER REFERENCES contract (id),
+    credential_tag TEXT NOT NULL,
+    expires TEXT NOT NULL
+);
 """
-VERSION = 1  # PRAGMA user_version
+# PRAGMA user_version. 1: rapporti. 2: login sessions (a new table: the schema adds it).
+VERSION = 2
 
 # Version 0 had one rapporto per installation: its rows all become rapporto 1.
 COPY_FROM_V0 = {
@@ -81,14 +98,14 @@ COPY_FROM_V0 = {
 
 
 def _upgrade(db: sqlite3.Connection) -> None:
-    """Create the schema, migrating a version 0 database. One transaction: all or nothing."""
+    """Create or upgrade the schema to VERSION. One transaction: all or nothing."""
     (version,) = db.execute("PRAGMA user_version").fetchone()
     if version == VERSION:
         return
-    if version != 0:
+    if version > VERSION:
         raise RuntimeError(f"database versione {version}, questa tata conosce fino alla {VERSION}")
     tables = {name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    old = [t for t in COPY_FROM_V0 if t in tables]
+    old = [t for t in COPY_FROM_V0 if t in tables] if version == 0 else []
     db.execute("BEGIN")
     try:
         db.execute("DROP INDEX IF EXISTS one_open_punch")
@@ -426,10 +443,49 @@ class Store:
     def set_worker_hash(self, contract_id: int, worker_hash: str | None) -> None:
         """The worker's password hash (computed by the caller); None closes her access."""
         self._update("UPDATE contract SET worker_hash = ? WHERE id = ?", (worker_hash, contract_id))
+        with closing(sqlite3.connect(self._path)) as db, db:  # her old password logs her out
+            db.execute("DELETE FROM session WHERE contract_id = ?", (contract_id,))
 
     def worker_hashes(self) -> dict[int, str]:
         rows = self._read("SELECT id, worker_hash FROM contract WHERE worker_hash IS NOT NULL", ())
         return {int(str(id_)): str(h) for id_, h in rows}
+
+    # ---- login sessions: the cookie's token is never stored, only its hash
+
+    def add_session(self, session: Session, purge_before: datetime) -> None:
+        """Stores the session, dropping those expired before `purge_before`."""
+        with closing(sqlite3.connect(self._path)) as db, db:
+            db.execute("DELETE FROM session WHERE expires < ?", (purge_before.isoformat(),))
+            db.execute(
+                "INSERT INTO session VALUES (?, ?, ?, ?)",
+                (
+                    session.token_hash,
+                    session.contract_id,
+                    session.credential_tag,
+                    session.expires.isoformat(),
+                ),
+            )
+
+    def session(self, token_hash: str) -> Session | None:
+        rows = self._read(
+            "SELECT contract_id, credential_tag, expires FROM session WHERE token_hash = ?",
+            (token_hash,),
+        )
+        if not rows:
+            return None
+        contract_id, tag, expires = rows[0]
+        return Session.model_validate(
+            {
+                "token_hash": token_hash,
+                "contract_id": contract_id,
+                "credential_tag": tag,
+                "expires": expires,
+            }
+        )
+
+    def delete_session(self, token_hash: str) -> None:
+        with closing(sqlite3.connect(self._path)) as db, db:
+            db.execute("DELETE FROM session WHERE token_hash = ?", (token_hash,))
 
     def all_payments(self) -> list[Payment]:
         """Every rapporto's INPS payments: the employer's deduction sums them."""

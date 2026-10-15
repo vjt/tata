@@ -1,6 +1,6 @@
 """Domain types shared by the calculators, the store and the web layer."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 
@@ -209,3 +209,12 @@ class Mileage(Frozen):
         if self.km_turno <= 0 or self.euro_km <= 0:
             raise ValueError("rimborso trasferte: km e €/km devono essere positivi")
         return self
+
+
+class Session(Frozen):
+    """A logged-in browser. The cookie holds a random token; only its hash is stored."""
+
+    token_hash: str
+    contract_id: int | None  # the worker's rapporto; None = the employer
+    credential_tag: str  # digest of the credential used: changing it ends the session
+    expires: datetime

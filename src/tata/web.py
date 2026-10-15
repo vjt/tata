@@ -1,4 +1,5 @@
-"""FastAPI app: server-rendered pages, the employer's password and one per worker, no JS."""
+"""FastAPI app: server-rendered pages, a login page (the employer's password or a worker's,
+which picks her rapporto) and a session cookie, no JavaScript."""
 
 # Route handlers are registered by decorator and never called by name; pyright cannot see that.
 # pyright: reportUnusedFunction=false
@@ -12,13 +13,11 @@ from collections.abc import Callable
 from datetime import date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
-from typing import Annotated
 from urllib.error import URLError
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import FormData
@@ -45,6 +44,7 @@ from tata.models import (
     Mileage,
     Payment,
     Punch,
+    Session,
     Span,
 )
 from tata.payslip import Payslip, compute_payslip, rimborso_line, trip_cost
@@ -84,6 +84,9 @@ HA_VARS = ("TATA_HA_URL", "TATA_HA_TOKEN")
 MILEAGE_VARS = ("TATA_RIMBORSO_KM", "TATA_RIMBORSO_EURO_KM")
 RETURN_TO = re.compile(r"/r/\d+/presenza/\d{4}/\d{1,2}")
 SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
+COOKIE = "tata_sessione"
+SESSION = timedelta(days=90)  # the PWA on her phone should not ask every week
+SAFE_NEXT = re.compile(r"/(?!/)[\w/.\-]*")  # after login: a path of this site, nothing else
 
 
 def worker_routes(cid: int) -> dict[str, re.Pattern[str]]:
@@ -92,7 +95,7 @@ def worker_routes(cid: int) -> dict[str, re.Pattern[str]]:
     return {
         "GET": re.compile(rf"/|/timbra|{base}/|{base}/timbra|{base}/mese/\d{{4}}/\d{{1,2}}"
                           rf"(/prospetto\.pdf)?"),
-        "POST": re.compile(rf"{base}/timbra/(inizio|fine)|{base}/timbrature"),
+        "POST": re.compile(rf"/logout|{base}/timbra/(inizio|fine)|{base}/timbrature"),
     }  # fmt: skip
 
 
@@ -106,6 +109,10 @@ def check_password(password: str, stored: str) -> bool:
     _, salt, digest = stored.split("$")
     given = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), **SCRYPT)
     return secrets.compare_digest(given, bytes.fromhex(digest))
+
+
+def digest(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def rome_now() -> datetime:
@@ -149,25 +156,37 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
     store = Store(settings.data_dir / "tata.sqlite")
     book = RatesBook(settings.rates_dir)
     templates = _templates()
-    basic = HTTPBasic()
 
-    def auth(
-        request: Request, credentials: Annotated[HTTPBasicCredentials, Depends(basic)]
-    ) -> None:
-        """Who is asking: the employer, a worker (her rapporto's routes only, 403 elsewhere),
-        or nobody (401). A worker's password identifies her rapporto."""
+    def credential_tag(contract_id: int | None) -> str | None:
+        """What a session's credential must still be: the employer's password, or the
+        worker's current hash. None: she no longer has access."""
+        if contract_id is None:
+            return digest(settings.password)
+        stored = store.worker_hashes().get(contract_id)
+        return None if stored is None else digest(stored)
+
+    def auth(request: Request) -> None:
+        """Who is asking, from the session cookie: the employer, a worker (her rapporto's
+        routes only, 403 elsewhere), or nobody (to the login page)."""
         request.state.worker = False
-        if secrets.compare_digest(credentials.password.encode(), settings.password.encode()):
+        request.state.logged = False
+        if request.url.path == "/login":
             return
-        for cid, stored in store.worker_hashes().items():
-            if check_password(credentials.password, stored):
-                request.state.worker = True
-                request.state.rapporto = cid
-                allowed = worker_routes(cid).get(request.method)
-                if allowed is None or not allowed.fullmatch(request.url.path):
-                    raise HTTPException(403)
-                return
-        raise HTTPException(401, headers={"WWW-Authenticate": "Basic"})
+        token = request.cookies.get(COOKIE)
+        session = store.session(digest(token)) if token else None
+        if (
+            session is None
+            or session.expires <= now()
+            or session.credential_tag != credential_tag(session.contract_id)
+        ):
+            raise _Redirect(f"/login?next={request.url.path}")
+        request.state.logged = True
+        if session.contract_id is not None:
+            request.state.worker = True
+            request.state.rapporto = session.contract_id
+            allowed = worker_routes(session.contract_id).get(request.method)
+            if allowed is None or not allowed.fullmatch(request.url.path):
+                raise HTTPException(403)
 
     app = FastAPI(dependencies=[Depends(auth)], docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
@@ -199,6 +218,65 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
     @app.exception_handler(_Redirect)
     async def redirect(request: Request, exc: _Redirect) -> RedirectResponse:
         return RedirectResponse(exc.location, status_code=303)
+
+    # ---- login
+
+    @app.get("/login", response_class=HTMLResponse)
+    def login_page(request: Request) -> HTMLResponse:
+        nxt = request.query_params.get("next", "/")
+        return templates.TemplateResponse(request, "login.html", {"next": nxt, "error": ""})
+
+    @app.post("/login", response_model=None)
+    async def login(request: Request) -> Response:
+        """The password says who: the employer's, or the one of a worker's rapporto."""
+        form = await request.form()
+        password, nxt = _field(form, "password"), _field(form, "next")
+        if secrets.compare_digest(password.encode(), settings.password.encode()):
+            who: int | None = None
+        else:
+            matches = [c for c, h in store.worker_hashes().items() if check_password(password, h)]
+            if not matches:
+                return templates.TemplateResponse(
+                    request,
+                    "login.html",
+                    {"next": nxt, "error": "password sbagliata"},
+                    status_code=401,
+                )
+            who = matches[0]
+        tag = credential_tag(who)
+        if tag is None:
+            raise RuntimeError("accesso appena verificato e già sparito")
+        token = secrets.token_urlsafe(32)
+        moment = now()
+        store.add_session(
+            Session(
+                token_hash=digest(token),
+                contract_id=who,
+                credential_tag=tag,
+                expires=moment + SESSION,
+            ),
+            moment,
+        )
+        target = nxt if SAFE_NEXT.fullmatch(nxt) and nxt != "/login" else "/"
+        response = RedirectResponse(target, status_code=303)
+        response.set_cookie(
+            COOKIE,
+            token,
+            max_age=int(SESSION.total_seconds()),
+            httponly=True,
+            secure=True,
+            samesite="lax",
+        )
+        return response
+
+    @app.post("/logout")
+    def logout(request: Request) -> RedirectResponse:
+        token = request.cookies.get(COOKIE)
+        if token:
+            store.delete_session(digest(token))
+        response = RedirectResponse("/login", status_code=303)
+        response.delete_cookie(COOKIE, httponly=True, secure=True, samesite="lax")
+        return response
 
     def page(rs: RapportoStore, contract: Contract) -> dict[str, object]:
         """What every page of a rapporto needs: its URL prefix and whose it is."""

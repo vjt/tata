@@ -110,12 +110,12 @@ lavoratrice (`device_tracker...`). Il tracciamento del telefono di una dipendent
 richiede un'informativa scritta.
 
 **Installare sul telefono**: aprire `/timbra` e usare «Aggiungi a schermata Home»; si apre a
-schermo intero (`static/manifest.webmanifest`, nessun service worker). `/static` è pubblico,
-tutto il resto resta dietro HTTP Basic.
+schermo intero (`static/manifest.webmanifest`, nessun service worker). `/static` e la pagina di
+accesso sono pubblici, tutto il resto chiede di entrare.
 
 **Da verificare** sul dispositivo: il telefono deve fidarsi della radice di step-ca, altrimenti
-niente installazione né HTTPS valido; tata è raggiungibile solo dalla LAN (da fuori, VPN); in
-modalità standalone HTTP Basic non deve richiedere la password a ogni avvio.
+niente installazione né HTTPS valido; tata è raggiungibile solo dalla LAN (da fuori, VPN); la
+sessione dura 90 giorni, quindi la PWA non chiede la password a ogni avvio.
 
 ## Privacy: codice pubblico, dati mai
 
@@ -163,7 +163,10 @@ docker compose up -d --build
 
   con `${TATA_CERTS}` montato su `/root/tata` nel pusher.
 - **DNS**: un record A per il nome host che punta a `${TATA_IP}`.
-- **Accesso**: HTTP Basic, nome utente qualsiasi. Il datore entra con `TATA_PASSWORD` e vede
+- **Accesso**: pagina di accesso con la sola password; la sessione è un cookie (`HttpOnly`,
+  `Secure`, `SameSite=Lax`) con un token casuale di cui il database tiene solo l'hash, valido
+  90 giorni o fino a *esci*, e decade se la password con cui si è entrati cambia. Il
+  datore entra con `TATA_PASSWORD` e vede
   tutti i rapporti (`/rapporti`). Dalla pagina del contratto può dare a ogni lavoratrice una
   password sua (salvata come hash scrypt, diversa da tutte le altre): con quella entra solo
   nel suo rapporto, in sola lettura sul mese e sul prospetto, e timbra (pulsante o a mano);
