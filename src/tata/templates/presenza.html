@@ -28,7 +28,7 @@
         {% elif d.day == today and p.end > minute %}
           {{ p }} (confermabile dalle {{ p.end | ore }})
         {% else %}
-          <form method="post" action="/timbrature">
+          <form method="post" action="{{ base }}/timbrature">
             <input type="hidden" name="giorno" value="{{ d.day.isoformat() }}">
             <input type="hidden" name="inizio" value="{{ p.start | ore }}">
             <input type="hidden" name="fine" value="{{ p.end | ore }}">
@@ -59,6 +59,6 @@
   {% else %}
   <p>Nessuna timbratura chiusa in questo mese.</p>
   {% endif %}
-  <p><a href="/mese/{{ year }}/{{ month }}#cartellino">cartellino del mese</a></p>
+  <p><a href="{{ base }}/mese/{{ year }}/{{ month }}#cartellino">cartellino del mese</a></p>
 </section>
 {% endblock %}

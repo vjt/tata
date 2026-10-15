@@ -14,13 +14,17 @@
 <header>
   <a class="brand" href="/"><img src="/static/logo.png" alt="" width="32" height="32">tata</a>
   <nav>
-    <a href="/timbra">timbra</a>
-    {% if not request.state.worker %}<a href="/presenza">presenza</a>{% endif %}
-    <a href="/">mese</a>
+    {% if base is defined %}
+    <span class="who">{{ who }}</span>
+    <a href="{{ base }}/timbra">timbra</a>
+    {% if not request.state.worker %}<a href="{{ base }}/presenza">presenza</a>{% endif %}
+    <a href="{{ base }}/">mese</a>
     {% if not request.state.worker %}
-    <a href="/anno">anno</a>
-    <a href="/contratto">contratto</a>
+    <a href="{{ base }}/anno">anno</a>
+    <a href="{{ base }}/contratto">contratto</a>
     {% endif %}
+    {% endif %}
+    {% if not request.state.worker %}<a href="/rapporti">rapporti</a>{% endif %}
   </nav>
 </header>
 <main>

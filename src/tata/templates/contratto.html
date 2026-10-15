@@ -2,12 +2,12 @@
 {% block title %}contratto · tata{% endblock %}
 {% set c = contract %}
 {% block content %}
-<h1>Contratto</h1>
-<form method="post" action="/contratto" class="card form">
+<h1>{% if c %}Contratto · {{ c.lavoratore_nome }}{% else %}Nuovo rapporto{% endif %}</h1>
+<form method="post" action="{{ action }}" class="card form">
   <fieldset>
     <legend>Datore di lavoro</legend>
-    <label>Nome e cognome <input name="datore_nome" required value="{{ c.datore_nome if c }}"></label>
-    <label>Codice fiscale <input name="datore_cf" required value="{{ c.datore_cf if c }}"></label>
+    <label>Nome e cognome <input name="datore_nome" required value="{{ c.datore_nome if c else datore[0] }}"></label>
+    <label>Codice fiscale <input name="datore_cf" required value="{{ c.datore_cf if c else datore[1] }}"></label>
   </fieldset>
   <fieldset>
     <legend>Lavoratore</legend>
@@ -34,6 +34,21 @@
     <label>{{ g }} <input name="orario_{{ loop.index0 }}" value="{{ c.orario[loop.index0] | map('string') | join(', ') if c }}"></label>
     {% endfor %}
   </fieldset>
+  <fieldset>
+    <legend>Presenza wifi</legend>
+    <label>Tracker Home Assistant del telefono <input name="ha_entity" placeholder="device_tracker.nome" value="{{ ha_entity }}"></label>
+    <p class="hint">Vuoto = niente proposte dal wifi per questo rapporto.</p>
+  </fieldset>
   <button>Salva</button>
 </form>
+{% if c %}
+<form method="post" action="{{ base }}/accesso" class="card form">
+  <h2>Accesso della lavoratrice</h2>
+  <p class="hint">{% if worker_access %}Ha una password: vede il mese e il prospetto, e timbra.{% else %}Nessun accesso.{% endif %}
+    Nome utente qualsiasi; la password individua il rapporto, quindi deve essere diversa dalle altre.</p>
+  <label>Nuova password <input name="password" type="password" autocomplete="new-password"></label>
+  <button>{% if worker_access %}Cambia password{% else %}Dai accesso{% endif %}</button>
+  {% if worker_access %}<button name="togli" value="1" class="link">togli l'accesso</button>{% endif %}
+</form>
+{% endif %}
 {% endblock %}

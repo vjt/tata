@@ -2,7 +2,9 @@
 
 ![tata](docs/cover.jpg)
 
-Ore e buste paga di **una** lavoratrice o lavoratore domestico, in casa propria (self-hosted).
+Ore e buste paga di lavoratrici e lavoratori domestici, in casa propria (self-hosted): un
+**rapporto** per persona e assunzione, aperto o chiuso, anche più d'uno insieme (la colf e la
+baby sitter). I rapporti chiusi restano consultabili per sempre.
 
 Pensata per una famiglia che assume una baby sitter a ore con il CCNL lavoro domestico del
 28 ottobre 2025. Si registrano solo le eccezioni all'orario settimanale; tata produce:
@@ -41,7 +43,7 @@ Lo straordinario cade sui minuti più tardi della giornata o della settimana. Tu
 cambiano a gennaio stanno in [`rates/<anno>.yaml`](rates/2026.yaml), ciascuno con la sua fonte.
 
 **Non gestito** (errore esplicito o fuori ambito): contratti a tempo determinato (contributo
-addizionale), lavoratori conviventi (vitto e alloggio), più di un lavoratore, assunzioni
+addizionale), lavoratori conviventi (vitto e alloggio), assunzioni
 precedenti al primo file di tariffe (2026). Il contratto non ha storico: un aumento o un nuovo
 orario ricalcola tutti i mesi non ancora finalizzati, quindi conviene finalizzare ogni mese (in
 ordine, l'app lo impone) appena pagato.
@@ -82,7 +84,7 @@ Nella pagina del mese:
   pagata come da orario, art. 1206 c.c., solo dentro l'orario). Un mese non ancora finito, con
   vuoti da confermare o con una timbratura aperta non si può finalizzare.
 
-**Presenza dal wifi** (facoltativa): `/presenza` legge da Home Assistant la storia del
+**Presenza dal wifi** (facoltativa): la pagina *presenza* del rapporto legge da Home Assistant la storia del
 `device_tracker` del telefono della lavoratrice (ad esempio quello di
 eve/openwrt-presence, che segna `not_home` 120 secondi dopo l'ultimo
 aggancio) e propone le timbrature per turni:
@@ -102,8 +104,9 @@ Niente viene registrato da solo: ogni proposta ha il suo pulsante *registra*, ch
 stessa strada della timbratura a mano (validazione, EXTRA, vuoti da confermare). I riavvii di
 Home Assistant (`unavailable`) non contano come uscite; una permanenza senza arrivo o uscita
 nota (telefono già «in casa» a mezzanotte, uscita durante un riavvio) va registrata a mano.
-In fondo, le ore timbrate per settimana. Si attiva con `TATA_HA_URL`, `TATA_HA_TOKEN` e
-`TATA_HA_ENTITY` (tutte e tre o nessuna). Il tracciamento del telefono di una dipendente
+In fondo, le ore timbrate per settimana. Si attiva con `TATA_HA_URL` e `TATA_HA_TOKEN`
+(entrambe o nessuna) e, nel contratto di ogni rapporto, il tracker del telefono della
+lavoratrice (`device_tracker...`). Il tracciamento del telefono di una dipendente
 richiede un'informativa scritta.
 
 **Installare sul telefono**: aprire `/timbra` e usare «Aggiungi a schermata Home»; si apre a
@@ -160,9 +163,12 @@ docker compose up -d --build
 
   con `${TATA_CERTS}` montato su `/root/tata` nel pusher.
 - **DNS**: un record A per il nome host che punta a `${TATA_IP}`.
-- **Accesso**: HTTP Basic, nome utente qualsiasi, password da `TATA_PASSWORD`. Con
-  `TATA_WORKER_PASSWORD` (facoltativa, diversa) la lavoratrice entra in sola lettura sul mese e
-  sul prospetto, e timbra (pulsante o a mano); tutto il resto le risponde 403.
+- **Accesso**: HTTP Basic, nome utente qualsiasi. Il datore entra con `TATA_PASSWORD` e vede
+  tutti i rapporti (`/rapporti`). Dalla pagina del contratto può dare a ogni lavoratrice una
+  password sua (salvata come hash scrypt, diversa da tutte le altre): con quella entra solo
+  nel suo rapporto, in sola lettura sul mese e sul prospetto, e timbra (pulsante o a mano);
+  tutto il resto le risponde 403. Le deduzioni dei contributi (`/anno/<anno>/deduzioni.yaml`)
+  sommano tutti i rapporti, con un solo tetto annuo per datore.
 
 ## Ogni gennaio
 

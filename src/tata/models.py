@@ -97,7 +97,7 @@ def _fmt_hhmm(minutes: int) -> str:
 
 
 class Contract(Frozen):
-    """The employment relationship. One per installation."""
+    """The terms of one employment relationship (see Rapporto)."""
 
     datore_nome: str
     datore_cf: str
@@ -126,6 +126,18 @@ class Contract(Frozen):
 
     def employed_on(self, day: date) -> bool:
         return self.assunzione <= day and (self.cessazione is None or day <= self.cessazione)
+
+
+class Rapporto(Frozen):
+    """One employment relationship: the contract, plus what is not a contract term."""
+
+    id: int
+    contract: Contract
+    ha_entity: str  # Home Assistant tracker of the worker's phone; "" = no wifi presence
+    worker_access: bool  # she has her own password
+
+    def open_on(self, day: date) -> bool:
+        return self.contract.cessazione is None or self.contract.cessazione >= day
 
 
 class Payment(Frozen):

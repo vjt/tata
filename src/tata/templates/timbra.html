@@ -3,28 +3,28 @@
 {% block content %}
 <section class="punch">
 {% if stale %}
-  <form method="post" action="/timbra/fine" class="card form">
+  <form method="post" action="{{ base }}/timbra/fine" class="card form">
     <h2>Turno del {{ open.day | dmy }} ancora aperto</h2>
     <label>Uscita alle <input name="alle" required placeholder="hh:mm" pattern="\d{1,2}:\d{2}"></label>
     <button class="big">Chiudi turno</button>
   </form>
 {% elif proposal.action == actions.FINE %}
-  <form method="post" action="/timbra/fine">
+  <form method="post" action="{{ base }}/timbra/fine">
     <input type="hidden" name="alle" value="">
     <button class="big">Fine turno</button>
   </form>
   <p class="hint">In servizio dalle {{ open.start | ore }}</p>
 {% elif proposal.action == actions.CONFERMA %}
-  <form method="post" action="/timbrature">
+  <form method="post" action="{{ base }}/timbrature">
     <input type="hidden" name="giorno" value="{{ today.isoformat() }}">
     <input type="hidden" name="inizio" value="{{ proposal.span.start | ore }}">
     <input type="hidden" name="fine" value="{{ proposal.span.end | ore }}">
     <button class="big">Conferma turno {{ proposal.span }}</button>
   </form>
-  <form method="post" action="/timbra/inizio"><button class="link">oppure: inizio turno adesso</button></form>
+  <form method="post" action="{{ base }}/timbra/inizio"><button class="link">oppure: inizio turno adesso</button></form>
 {% else %}
-  <form method="post" action="/timbra/inizio"><button class="big">Inizio turno</button></form>
+  <form method="post" action="{{ base }}/timbra/inizio"><button class="big">Inizio turno</button></form>
 {% endif %}
-  <a class="hint" href="/mese/{{ today.year }}/{{ today.month }}?giorno={{ today.isoformat() }}#cartellino">registra a mano</a>
+  <a class="hint" href="{{ base }}/mese/{{ today.year }}/{{ today.month }}?giorno={{ today.isoformat() }}#cartellino">registra a mano</a>
 </section>
 {% endblock %}

@@ -10,12 +10,10 @@ services:
     user: "${TATA_UID}:${TATA_GID}"   # host owner of the data and certs dirs: no chown needed
     environment:
       - TATA_PASSWORD
-      - TATA_WORKER_PASSWORD
       - TATA_RIMBORSO_KM
       - TATA_RIMBORSO_EURO_KM
       - TATA_HA_URL
       - TATA_HA_TOKEN
-      - TATA_HA_ENTITY
     volumes:
       - ${TATA_DATA}:/data
       - ${TATA_CERTS}:/certs:ro

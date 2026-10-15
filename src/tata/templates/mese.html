@@ -34,7 +34,7 @@
 </table>
 
 {% if employer and not final %}
-<form id="evento" method="post" action="/eventi" class="card form">
+<form id="evento" method="post" action="{{ base }}/eventi" class="card form">
   <h2>Registra un'eccezione</h2>
   <label>Tipo
     <select name="kind">{% for k in kinds %}<option value="{{ k }}">{{ k }}</option>{% endfor %}</select>
@@ -62,7 +62,7 @@
     <li>
       <span>{{ e.day | dmy }} · {{ e.kind }}{% if e.span %} {{ e.span }}{% endif %}{% if e.note %} · {{ e.note }}{% endif %}</span>
       {% if employer and not final %}
-      <form method="post" action="/eventi/{{ e.id }}/elimina"><button class="link">elimina</button></form>
+      <form method="post" action="{{ base }}/eventi/{{ e.id }}/elimina"><button class="link">elimina</button></form>
       {% endif %}
     </li>
   {% endfor %}
@@ -79,7 +79,7 @@
       <span>{{ s.day | dmy }} · {{ s.span }} non timbrato</span>
       <span class="actions">
       {% if employer %}{% for kind, label in [("assenza", "assente"), ("permesso", "permesso"), ("mora", "mandata a casa")] %}
-        <form method="post" action="/eventi">
+        <form method="post" action="{{ base }}/eventi">
           <input type="hidden" name="kind" value="{{ kind }}">
           <input type="hidden" name="dal" value="{{ s.day.isoformat() }}">
           <input type="hidden" name="al" value="">
@@ -106,7 +106,7 @@
         {% set t = trips.get(p.id) %}
         {% if t and mileage %} · {% if t.own_car %}trasferta {{ mileage.km_turno | num }} km, {{ trip_cost | eur }}{% else %}auto del datore, niente trasferta{% endif %}{% endif %}</span>
       {% if t and mileage and employer and not final %}
-      <form method="post" action="/turni/auto">
+      <form method="post" action="{{ base }}/turni/auto">
         <input type="hidden" name="giorno" value="{{ t.day.isoformat() }}">
         <input type="hidden" name="mattina" value="{{ 1 if t.morning else 0 }}">
         <input type="hidden" name="datore" value="{{ 1 if t.own_car else 0 }}">
@@ -114,7 +114,7 @@
       </form>
       {% endif %}
       {% if employer and not final %}
-      <form method="post" action="/timbrature/{{ p.id }}/elimina"><button class="link">elimina</button></form>
+      <form method="post" action="{{ base }}/timbrature/{{ p.id }}/elimina"><button class="link">elimina</button></form>
       {% endif %}
     </li>
   {% endfor %}
@@ -125,7 +125,7 @@
   {% endif %}
   {% endif %}
   {% if not final %}
-  <form method="post" action="/timbrature" class="form inline">
+  <form method="post" action="{{ base }}/timbrature" class="form inline">
     <input type="date" name="giorno" required value="{{ selected }}">
     <input name="inizio" required placeholder="entrata hh:mm" pattern="\d{1,2}:\d{2}">
     <input name="fine" required placeholder="uscita hh:mm" pattern="\d{1,2}:\d{2}">
@@ -140,9 +140,9 @@
     confermati. È questo che si paga e si finalizza.</p>
   {% include "_prospetto.html" %}
   <p class="actions">
-    <a class="button" href="/mese/{{ year }}/{{ month }}/prospetto.pdf">PDF</a>
+    <a class="button" href="{{ base }}/mese/{{ year }}/{{ month }}/prospetto.pdf">PDF</a>
     {% if employer and not final %}
-    <form method="post" action="/mese/{{ year }}/{{ month }}/finalizza"><button>Finalizza il mese</button></form>
+    <form method="post" action="{{ base }}/mese/{{ year }}/{{ month }}/finalizza"><button>Finalizza il mese</button></form>
     {% endif %}
   </p>
 </section>

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}rapporti · tata{% endblock %}
+{% block content %}
+<h1>Rapporti di lavoro</h1>
+<section class="card">
+  {% if rapporti %}
+  <ul class="events">
+  {% for r in rapporti %}
+    <li>
+      <span><a href="/r/{{ r.id }}/">{{ r.contract.lavoratore_nome }}</a> · {{ r.contract.livello }}
+        · dal {{ r.contract.assunzione | dmy }}{% if r.contract.cessazione %} al {{ r.contract.cessazione | dmy }}{% endif %}</span>
+      <span>{% if r.open_on(today) %}aperto{% else %}<small>chiuso</small>{% endif %}</span>
+    </li>
+  {% endfor %}
+  </ul>
+  {% else %}
+  <p>Nessun rapporto.</p>
+  {% endif %}
+  <p><a class="button" href="/rapporti/nuovo">Nuovo rapporto</a></p>
+</section>
+<section class="card">
+  <h2>Datore</h2>
+  <p><a class="button" href="/anno/{{ today.year }}/deduzioni.yaml">Deduzioni {{ today.year }} (YAML, tutti i rapporti)</a></p>
+</section>
+{% endblock %}

@@ -7,7 +7,6 @@ from pathlib import Path
 from urllib.error import URLError
 from zoneinfo import ZoneInfo
 
-import pytest
 import yaml
 from fastapi.testclient import TestClient
 
@@ -37,6 +36,7 @@ CONTRACT_FORM = {
     "orario_4": "08:00-08:45, 15:45-18:00",
     "orario_5": "",
     "orario_6": "",
+    "ha_entity": "",
 }
 
 
@@ -45,7 +45,7 @@ def basic(password: str) -> dict[str, str]:
     return {"Authorization": f"Basic {token}"}
 
 
-WORKER = "pass-lavoratrice"
+WORKER = "pass-lavoratrice"  # set per rapporto by the employer, see with_worker
 # Invented route: 12 km a turno (andata e ritorno), ACI 0,4463 €/km.
 MILEAGE = Mileage(km_turno=Decimal(12), euro_km=Decimal("0.4463"))
 
@@ -55,7 +55,6 @@ def settings(tmp_path: Path) -> Settings:
         data_dir=tmp_path,
         rates_dir=RATES_DIR,
         password=PASSWORD,
-        worker_password=WORKER,
         mileage=MILEAGE,
     )
 
@@ -71,7 +70,7 @@ def client(tmp_path: Path) -> TestClient:
 
 def hired(tmp_path: Path) -> TestClient:
     c = client(tmp_path)
-    assert c.post("/contratto", data=CONTRACT_FORM).status_code == 303
+    assert c.post("/rapporti", data=CONTRACT_FORM).status_code == 303
     return c
 
 
@@ -80,17 +79,18 @@ def worked_as_scheduled(tmp_path: Path, first: date, last: date) -> None:
     worked, so not through the web (which refuses future punches); one transaction, because
     a commit per punch (Store.add_punch) made each of these tests take a second."""
     path = tmp_path / "tata.sqlite"
-    contract = Store(path).contract()
-    assert contract is not None
+    contract = Store(path).rapporto(1).contract()
     rows = [
-        (day.isoformat(), s.start, s.end)
+        (1, day.isoformat(), s.start, s.end)
         for day in (first + timedelta(days=n) for n in range((last - first).days + 1))
         if day not in festivita(day.year, 6, 24)  # patrono as in CONTRACT_FORM
         for s in contract.orario[day.weekday()]
     ]
     with closing(sqlite3.connect(path)) as db, db:
-        db.executemany("INSERT INTO punch (day, start, stop) VALUES (?, ?, ?)", rows)
-    assert len(Store(path).punches()) >= len(rows)  # the schema still matches
+        db.executemany(
+            "INSERT INTO punch (contract_id, day, start, stop) VALUES (?, ?, ?, ?)", rows
+        )
+    assert len(Store(path).rapporto(1).punches()) >= len(rows)  # the schema still matches
 
 
 def worked(tmp_path: Path) -> TestClient:
@@ -102,26 +102,45 @@ def worked(tmp_path: Path) -> TestClient:
 
 def test_wrong_password_is_refused(tmp_path: Path) -> None:
     app = create_app(settings(tmp_path), end_of_2026, None)
-    assert TestClient(app, headers=basic("sbagliata")).get("/contratto").status_code == 401
-    assert TestClient(app).get("/contratto").status_code == 401
+    assert TestClient(app, headers=basic("sbagliata")).get("/r/1/contratto").status_code == 401
+    assert TestClient(app).get("/r/1/contratto").status_code == 401
 
 
-def test_without_a_contract_everything_leads_to_the_contract_form(tmp_path: Path) -> None:
+def test_without_rapporti_everything_leads_to_the_list(tmp_path: Path) -> None:
     c = client(tmp_path)
-    assert c.get("/").headers["location"] == "/contratto"
-    assert c.get("/mese/2026/10").headers["location"] == "/contratto"
-    assert c.get("/contratto").status_code == 200
+    assert c.get("/").headers["location"] == "/rapporti"
+    assert c.get("/timbra").headers["location"] == "/rapporti"
+    assert c.get("/r/1/mese/2026/10").status_code == 404
+    assert "Nuovo rapporto" in c.get("/rapporti").text
+    assert c.get("/rapporti/nuovo").status_code == 200
+
+
+def test_overlapping_rapporti_each_with_its_own_pages(tmp_path: Path) -> None:
+    # A colf (rapporto 1) and a babysitter (2) at once; the colf leaves on 31/10 and stays.
+    c = hired(tmp_path)
+    sitter = {**CONTRACT_FORM, "lavoratore_nome": "Luisa Sassaroli", "assunzione": "2026-10-01"}
+    assert c.post("/rapporti", data=sitter).headers["location"] == "/r/2/"
+    assert c.get("/").headers["location"] == "/rapporti"  # two open: choose
+    assert "Luisa Sassaroli" in c.get("/r/2/mese/2026/10").text
+    assert "Luisa Sassaroli" not in c.get("/r/1/mese/2026/10").text
+    gone = {**CONTRACT_FORM, "cessazione": "2026-10-31"}
+    assert c.post("/r/1/contratto", data=gone).status_code == 303
+    listing = c.get("/rapporti").text
+    assert listing.index("Luisa Sassaroli") < listing.index("Carmen Necchi")  # open first
+    assert "chiuso" in listing
+    assert c.get("/r/1/anno/2026").status_code == 200  # closed, still readable
+    assert c.get("/").headers["location"] == "/r/2/"  # the only open one
 
 
 def test_month_page_shows_the_payslip(tmp_path: Path) -> None:
-    page = hired(tmp_path).get("/mese/2026/10")
+    page = hired(tmp_path).get("/r/1/mese/2026/10")
     assert page.status_code == 200
     assert "Ore ordinarie" in page.text
     assert "378,45" in page.text  # netto, see test_payslip
 
 
 def test_contract_form_shows_saved_values(tmp_path: Path) -> None:
-    page = hired(tmp_path).get("/contratto")
+    page = hired(tmp_path).get("/r/1/contratto")
     assert "Carmen Necchi" in page.text
     assert "08:00-08:45, 15:45-18:00" in page.text
 
@@ -129,7 +148,7 @@ def test_contract_form_shows_saved_values(tmp_path: Path) -> None:
 def test_ferie_range_creates_one_event_per_working_day(tmp_path: Path) -> None:
     c = hired(tmp_path)
     r = c.post(
-        "/eventi",
+        "/r/1/eventi",
         data={
             "kind": "ferie",
             "dal": "2026-10-19",
@@ -140,7 +159,7 @@ def test_ferie_range_creates_one_event_per_working_day(tmp_path: Path) -> None:
         },
     )
     assert r.status_code == 303
-    page = c.get("/mese/2026/10")
+    page = c.get("/r/1/mese/2026/10")
     assert "Ferie" in page.text
     assert page.text.count("badge ferie") == 6  # Mon-Sat, Sunday skipped
 
@@ -148,7 +167,7 @@ def test_ferie_range_creates_one_event_per_working_day(tmp_path: Path) -> None:
 def test_extra_hours_and_delete(tmp_path: Path) -> None:
     c = hired(tmp_path)
     c.post(
-        "/eventi",
+        "/r/1/eventi",
         data={
             "kind": "extra",
             "dal": "2026-10-16",
@@ -158,16 +177,16 @@ def test_extra_hours_and_delete(tmp_path: Path) -> None:
             "note": "cena",
         },
     )
-    page = c.get("/mese/2026/10")
+    page = c.get("/r/1/mese/2026/10")
     assert "Straordinario notturno" in page.text
-    event_id = page.text.split('action="/eventi/')[1].split("/")[0]
-    assert c.post(f"/eventi/{event_id}/elimina").status_code == 303
-    assert "Straordinario notturno" not in c.get("/mese/2026/10").text
+    event_id = page.text.split('action="/r/1/eventi/')[1].split("/")[0]
+    assert c.post(f"/r/1/eventi/{event_id}/elimina").status_code == 303
+    assert "Straordinario notturno" not in c.get("/r/1/mese/2026/10").text
 
 
 def test_invalid_input_is_a_400_with_the_reason(tmp_path: Path) -> None:
     r = hired(tmp_path).post(
-        "/eventi",
+        "/r/1/eventi",
         data={
             "kind": "ferie",
             "dal": "2026-10-18",
@@ -183,7 +202,7 @@ def test_invalid_input_is_a_400_with_the_reason(tmp_path: Path) -> None:
 
 
 def test_payslip_pdf(tmp_path: Path) -> None:
-    r = hired(tmp_path).get("/mese/2026/10/prospetto.pdf")
+    r = hired(tmp_path).get("/r/1/mese/2026/10/prospetto.pdf")
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/pdf"
     assert r.content.startswith(b"%PDF")
@@ -191,9 +210,9 @@ def test_payslip_pdf(tmp_path: Path) -> None:
 
 def test_finalized_month_refuses_new_events(tmp_path: Path) -> None:
     c = worked(tmp_path)
-    assert c.post("/mese/2026/10/finalizza").status_code == 303
+    assert c.post("/r/1/mese/2026/10/finalizza").status_code == 303
     r = c.post(
-        "/eventi",
+        "/r/1/eventi",
         data={
             "kind": "assenza",
             "dal": "2026-10-13",
@@ -209,10 +228,10 @@ def test_finalized_month_refuses_new_events(tmp_path: Path) -> None:
 
 def test_year_page_quarter_and_payment_and_deduction(tmp_path: Path) -> None:
     c = worked(tmp_path)
-    page = c.get("/anno/2026")
+    page = c.get("/r/1/anno/2026")
     assert "318,56" in page.text  # Q4 bollettino, see test_inps
     assert "10/01/2027" in page.text
-    r = c.post("/anno/2026/versamenti", data={"trimestre": "4", "pagato_il": "2026-12-30"})
+    r = c.post("/r/1/anno/2026/versamenti", data={"trimestre": "4", "pagato_il": "2026-12-30"})
     assert r.status_code == 303
     data = yaml.safe_load(c.get("/anno/2026/deduzioni.yaml").text)
     assert data["importo_deducibile"] == "229.86"
@@ -220,57 +239,57 @@ def test_year_page_quarter_and_payment_and_deduction(tmp_path: Path) -> None:
 
 
 def test_attestazione_pdf(tmp_path: Path) -> None:
-    r = hired(tmp_path).get("/anno/2026/attestazione.pdf")
+    r = hired(tmp_path).get("/r/1/anno/2026/attestazione.pdf")
     assert r.status_code == 200
     assert r.content.startswith(b"%PDF")
 
 
 def test_tfr_advance(tmp_path: Path) -> None:
     c = worked(tmp_path)
-    r = c.post("/anno/2026/anticipi", data={"giorno": "2026-12-20", "importo": "28,69"})
+    r = c.post("/r/1/anno/2026/anticipi", data={"giorno": "2026-12-20", "importo": "28,69"})
     assert r.status_code == 303
-    assert "100,00" in c.get("/anno/2026").text  # fund 128,69 (test_annual) - 28,69
+    assert "100,00" in c.get("/r/1/anno/2026").text  # fund 128,69 (test_annual) - 28,69
 
 
 def add(c: TestClient, kind: str, dal: str, al: str, inizio: str, fine: str) -> int:
     data = {"kind": kind, "dal": dal, "al": al, "inizio": inizio, "fine": fine, "note": ""}
-    return c.post("/eventi", data=data).status_code
+    return c.post("/r/1/eventi", data=data).status_code
 
 
 def test_conflicting_event_is_refused_at_insert_and_the_month_stays_usable(tmp_path: Path) -> None:
     c = hired(tmp_path)
     assert add(c, "ferie", "2026-11-02", "2026-11-06", "", "") == 303
     assert add(c, "malattia", "2026-11-04", "2026-11-05", "", "") == 400
-    assert c.get("/mese/2026/11").status_code == 200
-    assert c.get("/anno/2026").status_code == 200
+    assert c.get("/r/1/mese/2026/11").status_code == 200
+    assert c.get("/r/1/anno/2026").status_code == 200
 
 
 def test_timed_event_before_hire_is_refused(tmp_path: Path) -> None:
     c = hired(tmp_path)
     assert add(c, "extra", "2026-10-05", "", "09:00", "10:00") == 400
-    assert c.get("/mese/2026/10").status_code == 200
+    assert c.get("/r/1/mese/2026/10").status_code == 200
 
 
 def test_contract_change_that_orphans_events_is_refused(tmp_path: Path) -> None:
     c = hired(tmp_path)
     assert add(c, "extra", "2026-10-16", "", "18:00", "20:00") == 303
     later = {**CONTRACT_FORM, "assunzione": "2026-10-19"}
-    assert c.post("/contratto", data=later).status_code == 400
-    assert c.get("/mese/2026/10").status_code == 200
+    assert c.post("/r/1/contratto", data=later).status_code == 400
+    assert c.get("/r/1/mese/2026/10").status_code == 200
 
 
 def test_months_must_be_finalized_in_order(tmp_path: Path) -> None:
     c = worked(tmp_path)
-    r = c.post("/mese/2026/11/finalizza")
+    r = c.post("/r/1/mese/2026/11/finalizza")
     assert r.status_code == 400
     assert "ottobre" in r.text
-    assert c.post("/mese/2026/10/finalizza").status_code == 303
-    assert c.post("/mese/2026/11/finalizza").status_code == 303
+    assert c.post("/r/1/mese/2026/10/finalizza").status_code == 303
+    assert c.post("/r/1/mese/2026/11/finalizza").status_code == 303
 
 
 def test_ambiguous_thousands_dot_is_refused(tmp_path: Path) -> None:
     c = hired(tmp_path)
-    r = c.post("/anno/2026/anticipi", data={"giorno": "2026-12-20", "importo": "1.500"})
+    r = c.post("/r/1/anno/2026/anticipi", data={"giorno": "2026-12-20", "importo": "1.500"})
     assert r.status_code == 400
     assert "virgola" in r.text
 
@@ -282,7 +301,7 @@ def test_year_page_marks_future_quarters_as_projection(tmp_path: Path) -> None:
         return datetime(2026, 11, 15, 12, 0, tzinfo=ZoneInfo("Europe/Rome"))
 
     c = TestClient(create_app(settings(tmp_path), mid_november, None), headers=basic(PASSWORD))
-    page = c.get("/anno/2026")
+    page = c.get("/r/1/anno/2026")
     assert "stima" in page.text
     # TFR through November only: (398,70 + 580,33) / 13,5 = 72,52
     assert "72,52" in page.text
@@ -307,42 +326,42 @@ def punching(tmp_path: Path, start: datetime) -> tuple[TestClient, FakeClock]:
     c = TestClient(
         create_app(settings(tmp_path), clock, None), headers=basic(PASSWORD), follow_redirects=False
     )
-    assert c.post("/contratto", data=CONTRACT_FORM).status_code == 303
+    assert c.post("/rapporti", data=CONTRACT_FORM).status_code == 303
     return c, clock
 
 
 def test_button_start_then_stop_with_overrun(tmp_path: Path) -> None:
     # Tue 13/10, schedule 15:45-18:00. In at 15:44 (1 min early, tolerated), out at 18:40.
     c, clock = punching(tmp_path, rome(2026, 10, 13, 15, 44))
-    assert "Inizio turno" in c.get("/timbra").text
-    assert c.post("/timbra/inizio").headers["location"] == "/timbra"
+    assert "Inizio turno" in c.get("/r/1/timbra").text
+    assert c.post("/r/1/timbra/inizio").headers["location"] == "/r/1/timbra"
     clock.value = rome(2026, 10, 13, 18, 40)
-    assert "Fine turno" in c.get("/timbra").text
-    assert c.post("/timbra/fine", data={"alle": ""}).status_code == 303
-    page = c.get("/mese/2026/10").text
+    assert "Fine turno" in c.get("/r/1/timbra").text
+    assert c.post("/r/1/timbra/fine", data={"alle": ""}).status_code == 303
+    page = c.get("/r/1/mese/2026/10").text
     assert "15:44-18:40" in page  # cartellino
     assert "extra 18:00-18:40" in page  # generated event
 
 
 def test_confirm_records_the_scheduled_span(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 10, 13, 18, 10))
-    page = c.get("/timbra").text
+    page = c.get("/r/1/timbra").text
     assert "Conferma turno 15:45-18:00" in page
-    r = c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
-    assert r.headers["location"] == "/timbra"
-    assert "Inizio turno" in c.get("/timbra").text  # span recorded, not proposed again
+    r = c.post("/r/1/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
+    assert r.headers["location"] == "/r/1/timbra"
+    assert "Inizio turno" in c.get("/r/1/timbra").text  # span recorded, not proposed again
 
 
 def test_shortfall_is_proposed_and_blocks_finalize_until_confirmed(tmp_path: Path) -> None:
     # Mon 12/10 (hire day) punched only in the afternoon; the 08:00-08:45 span is pending.
     c, _ = punching(tmp_path, rome(2026, 10, 12, 18, 30))
-    c.post("/timbrature", data={"giorno": "2026-10-12", "inizio": "15:45", "fine": "18:00"})
-    page = c.get("/mese/2026/10").text
+    c.post("/r/1/timbrature", data={"giorno": "2026-10-12", "inizio": "15:45", "fine": "18:00"})
+    page = c.get("/r/1/mese/2026/10").text
     assert "Da confermare" in page and "08:00-08:45" in page
-    r = c.post("/mese/2026/10/finalizza")
+    r = c.post("/r/1/mese/2026/10/finalizza")
     assert r.status_code == 400 and "da confermare" in r.text
     c.post(
-        "/eventi",
+        "/r/1/eventi",
         data={
             "kind": "mora",
             "dal": "2026-10-12",
@@ -352,13 +371,13 @@ def test_shortfall_is_proposed_and_blocks_finalize_until_confirmed(tmp_path: Pat
             "note": "",
         },
     )
-    assert "Da confermare" not in c.get("/mese/2026/10").text
+    assert "Da confermare" not in c.get("/r/1/mese/2026/10").text
 
 
 def test_month_still_running_cannot_be_finalized(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 10, 31, 12, 0))
     worked_as_scheduled(tmp_path, date(2026, 10, 12), date(2026, 10, 30))
-    r = c.post("/mese/2026/10/finalizza")
+    r = c.post("/r/1/mese/2026/10/finalizza")
     assert r.status_code == 400 and "non è ancora finito" in r.text
 
 
@@ -366,15 +385,15 @@ def test_payslip_pays_only_punched_time(tmp_path: Path) -> None:
     # Hired Mon 12/10, nothing punched that day: no punch, no pay. Tue 13/10 punched
     # 15:45-18:00 = 2 h 15 = 2,25 h; its 08:00-08:45 gap (still to confirm) and 14-31/10 unpaid.
     c, _ = punching(tmp_path, rome(2026, 10, 13, 18, 30))
-    c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
-    page = c.get("/mese/2026/10").text
+    c.post("/r/1/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
+    page = c.get("/r/1/mese/2026/10").text
     assert "<td>Ore ordinarie</td><td>2 h 15 min</td>" in page
     # The 13ma follows: 2,25 h x 8,86 = 19,935 -> 19,94 ; / 12 = 1,66 (art. 39).
     assert "<th>Tredicesima maturata nell'anno</th><td>1,66 €</td>" in page
     # Planned, for comparison: the schedule 12-31/10, 15 working days x 3 h = 45 h.
     assert "<td>Ore ordinarie</td><td>45 h</td>" in page.split("<h2>Pianificato</h2>")[1]
     c.post(
-        "/eventi",
+        "/r/1/eventi",
         data={
             "kind": "mora",
             "dal": "2026-10-13",
@@ -385,27 +404,27 @@ def test_payslip_pays_only_punched_time(tmp_path: Path) -> None:
         },
     )
     # Sent home 08:00-08:45: paid as scheduled (art. 1206 c.c.), + 45 min = 3,00 h.
-    assert "<td>Ore ordinarie</td><td>3 h</td>" in c.get("/mese/2026/10").text
+    assert "<td>Ore ordinarie</td><td>3 h</td>" in c.get("/r/1/mese/2026/10").text
 
 
 def test_stale_open_punch_asks_for_the_exit_time(tmp_path: Path) -> None:
     c, clock = punching(tmp_path, rome(2026, 10, 13, 15, 45))
-    c.post("/timbra/inizio")
+    c.post("/r/1/timbra/inizio")
     clock.value = rome(2026, 10, 14, 7, 55)
-    page = c.get("/timbra").text
+    page = c.get("/r/1/timbra").text
     assert 'name="alle"' in page and "13/10/2026" in page
-    r = c.post("/timbra/fine", data={"alle": ""})
+    r = c.post("/r/1/timbra/fine", data={"alle": ""})
     assert r.status_code == 400 and "ora di uscita" in r.text
-    assert c.post("/timbra/fine", data={"alle": "18:00"}).status_code == 303
-    assert "15:45-18:00" in c.get("/mese/2026/10").text
+    assert c.post("/r/1/timbra/fine", data={"alle": "18:00"}).status_code == 303
+    assert "15:45-18:00" in c.get("/r/1/mese/2026/10").text
 
 
 def test_stop_in_the_same_minute_is_refused(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 10, 13, 15, 45))
-    c.post("/timbra/inizio")
-    r = c.post("/timbra/fine", data={"alle": ""})
+    c.post("/r/1/timbra/inizio")
+    r = c.post("/r/1/timbra/fine", data={"alle": ""})
     assert r.status_code == 400
-    assert "Fine turno" in c.get("/timbra").text  # still open, nothing stored
+    assert "Fine turno" in c.get("/r/1/timbra").text  # still open, nothing stored
 
 
 def test_shortfalls_of_a_finalized_month_are_ignored(tmp_path: Path) -> None:
@@ -413,9 +432,9 @@ def test_shortfalls_of_a_finalized_month_are_ignored(tmp_path: Path) -> None:
     # finalized Mon 2/11 at 07:00.
     c, clock = punching(tmp_path, rome(2026, 11, 2, 7, 0))
     worked_as_scheduled(tmp_path, date(2026, 10, 12), date(2026, 10, 29))
-    c.post("/timbrature", data={"giorno": "2026-10-30", "inizio": "15:45", "fine": "18:00"})
+    c.post("/r/1/timbrature", data={"giorno": "2026-10-30", "inizio": "15:45", "fine": "18:00"})
     c.post(
-        "/eventi",
+        "/r/1/eventi",
         data={
             "kind": "mora",
             "dal": "2026-10-30",
@@ -425,47 +444,47 @@ def test_shortfalls_of_a_finalized_month_are_ignored(tmp_path: Path) -> None:
             "note": "",
         },
     )
-    assert c.post("/mese/2026/10/finalizza").status_code == 303
+    assert c.post("/r/1/mese/2026/10/finalizza").status_code == 303
     clock.value = rome(2026, 11, 3, 9, 0)
-    assert "Da confermare" not in c.get("/mese/2026/10").text
-    assert "Da confermare" in c.get("/mese/2026/11").text  # 2/11 unpunched, 3/11 morning
+    assert "Da confermare" not in c.get("/r/1/mese/2026/10").text
+    assert "Da confermare" in c.get("/r/1/mese/2026/11").text  # 2/11 unpunched, 3/11 morning
 
 
 def test_deleting_a_punch_removes_its_extra(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 10, 13, 20, 0))
-    c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "19:00"})
-    page = c.get("/mese/2026/10").text
+    c.post("/r/1/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "19:00"})
+    page = c.get("/r/1/mese/2026/10").text
     assert "extra 18:00-19:00" in page
-    punch_id = page.split('action="/timbrature/')[1].split("/")[0]
-    assert c.post(f"/timbrature/{punch_id}/elimina").status_code == 303
-    assert "extra 18:00-19:00" not in c.get("/mese/2026/10").text
+    punch_id = page.split('action="/r/1/timbrature/')[1].split("/")[0]
+    assert c.post(f"/r/1/timbrature/{punch_id}/elimina").status_code == 303
+    assert "extra 18:00-19:00" not in c.get("/r/1/mese/2026/10").text
 
 
 def test_finalize_refuses_an_open_punch(tmp_path: Path) -> None:
     c, clock = punching(tmp_path, rome(2026, 10, 13, 15, 45))
-    c.post("/timbra/inizio")
+    c.post("/r/1/timbra/inizio")
     clock.value = rome(2026, 10, 13, 18, 0)
-    r = c.post("/mese/2026/10/finalizza")
+    r = c.post("/r/1/mese/2026/10/finalizza")
     assert r.status_code == 400 and "timbratura aperta" in r.text
-    assert c.post("/timbra/fine", data={"alle": ""}).status_code == 303
+    assert c.post("/r/1/timbra/fine", data={"alle": ""}).status_code == 303
 
 
 def test_punch_page_always_offers_manual_entry(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 10, 13, 12, 0))
-    assert "/mese/2026/10?giorno=2026-10-13#cartellino" in c.get("/timbra").text
+    assert "/r/1/mese/2026/10?giorno=2026-10-13#cartellino" in c.get("/r/1/timbra").text
 
 
 def test_punch_longer_than_eight_hours_is_highlighted(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 10, 13, 20, 0))
-    c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "07:00", "fine": "16:00"})
-    assert 'class="long"' in c.get("/mese/2026/10").text
+    c.post("/r/1/timbrature", data={"giorno": "2026-10-13", "inizio": "07:00", "fine": "16:00"})
+    assert 'class="long"' in c.get("/r/1/mese/2026/10").text
 
 
 def test_punch_in_a_finalized_month_is_refused(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 11, 2, 9, 0))
     worked_as_scheduled(tmp_path, date(2026, 10, 12), date(2026, 10, 31))
-    assert c.post("/mese/2026/10/finalizza").status_code == 303
-    r = c.post("/timbrature", data={"giorno": "2026-10-18", "inizio": "10:00", "fine": "12:00"})
+    assert c.post("/r/1/mese/2026/10/finalizza").status_code == 303
+    r = c.post("/r/1/timbrature", data={"giorno": "2026-10-18", "inizio": "10:00", "fine": "12:00"})
     assert r.status_code == 400 and "finalizzato" in r.text
 
 
@@ -480,7 +499,7 @@ def test_manifest_is_public_and_linked(tmp_path: Path) -> None:
     assert manifest["display"] == "standalone"
     for icon in manifest["icons"]:
         assert TestClient(app).get(icon["src"]).status_code == 200
-    page = hired(tmp_path).get("/timbra").text
+    page = hired(tmp_path).get("/r/1/timbra").text
     assert 'rel="manifest" href="/static/manifest.webmanifest"' in page
 
 
@@ -488,38 +507,38 @@ def test_contract_change_recomputes_the_punch_extras(tmp_path: Path) -> None:
     # Tue 13/10 punched 15:45-18:00, exactly the schedule: no EXTRA. The afternoon span then
     # moves to 16:00-18:00: 15:45-16:00 (15 min > TOLERANCE) is now outside the schedule.
     c, _ = punching(tmp_path, rome(2026, 10, 13, 20, 0))
-    c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
-    assert "extra 15:45-16:00" not in c.get("/mese/2026/10").text
+    c.post("/r/1/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
+    assert "extra 15:45-16:00" not in c.get("/r/1/mese/2026/10").text
     moved = {**CONTRACT_FORM, "orario_1": "08:00-08:45, 16:00-18:00"}
-    assert c.post("/contratto", data=moved).status_code == 303
-    assert "extra 15:45-16:00" in c.get("/mese/2026/10").text
-    assert c.post("/contratto", data=CONTRACT_FORM).status_code == 303  # and back
-    assert "extra 15:45-16:00" not in c.get("/mese/2026/10").text
+    assert c.post("/r/1/contratto", data=moved).status_code == 303
+    assert "extra 15:45-16:00" in c.get("/r/1/mese/2026/10").text
+    assert c.post("/r/1/contratto", data=CONTRACT_FORM).status_code == 303  # and back
+    assert "extra 15:45-16:00" not in c.get("/r/1/mese/2026/10").text
 
 
 def test_contract_change_leaving_a_punch_outside_employment_is_refused(tmp_path: Path) -> None:
     # Punch on 13/10 within the schedule (no EXTRA); hiring moved to 19/10 would orphan it.
     c, _ = punching(tmp_path, rome(2026, 10, 13, 20, 0))
-    c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
+    c.post("/r/1/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"})
     later = {**CONTRACT_FORM, "assunzione": "2026-10-19"}
-    r = c.post("/contratto", data=later)
+    r = c.post("/r/1/contratto", data=later)
     assert r.status_code == 400 and "fuori dal rapporto" in r.text
-    assert 'value="2026-10-12"' in c.get("/contratto").text  # old contract still in force
+    assert 'value="2026-10-12"' in c.get("/r/1/contratto").text  # old contract still in force
 
 
 def test_punch_on_a_future_day_is_refused(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 10, 13, 20, 0))
-    r = c.post("/timbrature", data={"giorno": "2026-10-14", "inizio": "08:00", "fine": "08:45"})
+    r = c.post("/r/1/timbrature", data={"giorno": "2026-10-14", "inizio": "08:00", "fine": "08:45"})
     assert r.status_code == 400 and "futuro" in r.text
-    assert 'action="/timbrature/' not in c.get("/mese/2026/10").text  # nothing stored
+    assert 'action="/r/1/timbrature/' not in c.get("/r/1/mese/2026/10").text  # nothing stored
 
 
 def test_exit_later_than_now_is_refused(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 10, 13, 15, 45))
-    c.post("/timbra/inizio")
-    r = c.post("/timbra/fine", data={"alle": "18:00"})  # it is 15:45
+    c.post("/r/1/timbra/inizio")
+    r = c.post("/r/1/timbra/fine", data={"alle": "18:00"})  # it is 15:45
     assert r.status_code == 400 and "futuro" in r.text
-    assert "Fine turno" in c.get("/timbra").text  # still open, nothing stored
+    assert "Fine turno" in c.get("/r/1/timbra").text  # still open, nothing stored
 
 
 class FakeHomeAssistant:
@@ -529,7 +548,8 @@ class FakeHomeAssistant:
         self.history = history
         self.asked: list[tuple[datetime, datetime]] = []
 
-    def __call__(self, start: datetime, end: datetime) -> History:
+    def __call__(self, entity: str, start: datetime, end: datetime) -> History:
+        assert entity == TRACKER  # the rapporto's own tracker
         self.asked.append((start, end))
         if self.history is None:
             raise URLError("connection refused")
@@ -548,47 +568,51 @@ A_DAY = History(
 )
 
 
+TRACKER = "device_tracker.necchi"
+
+
 def presence_client(tmp_path: Path, clock: datetime, ha: FakeHomeAssistant) -> TestClient:
     c = TestClient(
         create_app(settings(tmp_path), FakeClock(clock), ha),
         headers=basic(PASSWORD),
         follow_redirects=False,
     )
-    assert c.post("/contratto", data=CONTRACT_FORM).status_code == 303
+    form = {**CONTRACT_FORM, "ha_entity": TRACKER}
+    assert c.post("/rapporti", data=form).status_code == 303
     return c
 
 
 def test_presence_page_proposes_and_records_on_confirmation(tmp_path: Path) -> None:
     ha = FakeHomeAssistant(A_DAY)
     c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), ha)
-    page = c.get("/presenza/2026/10").text
+    page = c.get("/r/1/presenza/2026/10").text
     # Morning: 07:55 to 08:12 + 30 = 08:42 (left by 08:30). Afternoon: 15:45 to 18:03.
     assert "07:55-08:42" in page
     assert "15:45-18:03" in page
     assert ha.asked == [(rome(2026, 10, 1, 0, 0), rome(2026, 10, 15, 19, 0))]
     # Nothing is recorded until confirmed.
-    assert "07:55-08:42" not in c.get("/mese/2026/10").text.split('id="cartellino"')[1]
+    assert "07:55-08:42" not in c.get("/r/1/mese/2026/10").text.split('id="cartellino"')[1]
     for inizio, fine in (("07:55", "08:42"), ("15:45", "18:03")):
         r = c.post(
-            "/timbrature",
+            "/r/1/timbrature",
             data={
                 "giorno": "2026-10-15",
                 "inizio": inizio,
                 "fine": fine,
-                "torna": "/presenza/2026/10",
+                "torna": "/r/1/presenza/2026/10",
             },
         )
-        assert r.headers["location"] == "/presenza/2026/10"
-    page = c.get("/presenza/2026/10").text
+        assert r.headers["location"] == "/r/1/presenza/2026/10"
+    page = c.get("/r/1/presenza/2026/10").text
     assert page.count("registrata") == 2
     # Week of 12/10: 47 min + 2 h 18 min = 3:05.
     assert "3:05" in page
-    assert "07:55-08:42" in c.get("/mese/2026/10").text.split('id="cartellino"')[1]
+    assert "07:55-08:42" in c.get("/r/1/mese/2026/10").text.split('id="cartellino"')[1]
 
 
 def test_presence_proposal_ending_after_now_cannot_be_confirmed_yet(tmp_path: Path) -> None:
     ha = FakeHomeAssistant(A_DAY)
-    page = presence_client(tmp_path, rome(2026, 10, 15, 8, 30), ha).get("/presenza/2026/10")
+    page = presence_client(tmp_path, rome(2026, 10, 15, 8, 30), ha).get("/r/1/presenza/2026/10")
     assert "07:55-08:42" in page.text
     assert "dalle 8:42" in page.text
     assert 'value="8:42"' not in page.text
@@ -596,30 +620,43 @@ def test_presence_proposal_ending_after_now_cannot_be_confirmed_yet(tmp_path: Pa
 
 def test_presence_page_without_home_assistant(tmp_path: Path) -> None:
     c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), FakeHomeAssistant(None))
-    r = c.get("/presenza/2026/10")
+    r = c.get("/r/1/presenza/2026/10")
     assert r.status_code == 502
     assert "Home Assistant" in r.text
 
 
 def test_presence_not_configured(tmp_path: Path) -> None:
     c = TestClient(create_app(settings(tmp_path), end_of_2026, None), headers=basic(PASSWORD))
-    assert c.post("/contratto", data=CONTRACT_FORM).status_code == 200
-    r = c.get("/presenza/2026/10")
+    assert c.post("/rapporti", data=CONTRACT_FORM).status_code == 200
+    r = c.get("/r/1/presenza/2026/10")
     assert r.status_code == 400
     assert "TATA_HA_URL" in r.text
+
+
+def test_presence_needs_the_rapporto_tracker(tmp_path: Path) -> None:
+    ha = FakeHomeAssistant(A_DAY)
+    c, _ = punching(tmp_path, rome(2026, 10, 15, 19, 0))
+    c = TestClient(
+        create_app(settings(tmp_path), end_of_2026, ha),
+        headers=basic(PASSWORD),
+        follow_redirects=False,
+    )
+    r = c.get("/r/1/presenza/2026/10")
+    assert r.status_code == 400 and "tracker" in r.text
+    assert ha.asked == []
 
 
 def test_presence_future_month_asks_nothing(tmp_path: Path) -> None:
     ha = FakeHomeAssistant(A_DAY)
     c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), ha)
-    assert c.get("/presenza/2026/11").status_code == 200
+    assert c.get("/r/1/presenza/2026/11").status_code == 200
     assert ha.asked == []
 
 
 def test_return_address_must_be_a_presence_page(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 10, 15, 19, 0))
     r = c.post(
-        "/timbrature",
+        "/r/1/timbrature",
         data={
             "giorno": "2026-10-14",
             "inizio": "16:00",
@@ -627,74 +664,83 @@ def test_return_address_must_be_a_presence_page(tmp_path: Path) -> None:
             "torna": "https://evil.example/",
         },
     )
-    assert r.headers["location"] == "/mese/2026/10"
+    assert r.headers["location"] == "/r/1/mese/2026/10"
+
+
+def with_worker(c: TestClient, cid: int, password: str) -> TestClient:
+    """The employer gives the worker of rapporto `cid` her password; her client."""
+    assert c.post(f"/r/{cid}/accesso", data={"password": password}).status_code == 303
+    return TestClient(c.app, headers=basic(password), follow_redirects=False)
 
 
 def test_worker_reads_the_month_and_punches_but_nothing_else(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 10, 13, 18, 30))
-    w = TestClient(c.app, headers=basic(WORKER), follow_redirects=False)
+    w = with_worker(c, 1, WORKER)
+    assert w.get("/").headers["location"] == "/r/1/"
+    assert w.get("/timbra").headers["location"] == "/r/1/timbra"
     assert (
         w.post(
-            "/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"}
+            "/r/1/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"}
         ).status_code
         == 303
     )
-    page = w.get("/mese/2026/10").text
+    page = w.get("/r/1/mese/2026/10").text
     assert "15:45-18:00" in page and "prospetto paga" in page
     # No employer controls on her page: events, confirmations, deletions, finalize, nav.
     for control in (
-        'action="/eventi"',
+        'action="/r/1/eventi"',
         "/elimina",
         "/finalizza",
-        'href="/contratto"',
-        'href="/presenza"',
+        'href="/r/1/contratto"',
+        'href="/r/1/presenza"',
     ):
         assert control not in page
-    assert w.get("/mese/2026/10/prospetto.pdf").status_code == 200
-    assert w.get("/timbra").status_code == 200
+    assert w.get("/r/1/mese/2026/10/prospetto.pdf").status_code == 200
+    assert w.get("/r/1/timbra").status_code == 200
     forbidden = [
-        ("GET", "/contratto"),
-        ("GET", "/anno/2026"),
+        ("GET", "/r/1/contratto"),
+        ("GET", "/r/1/anno/2026"),
         ("GET", "/anno/2026/deduzioni.yaml"),
-        ("GET", "/presenza/2026/10"),
-        ("POST", "/eventi"),
-        ("POST", "/mese/2026/10/finalizza"),
-        ("POST", "/timbrature/1/elimina"),
-        ("POST", "/contratto"),
+        ("GET", "/r/1/presenza/2026/10"),
+        ("POST", "/r/1/eventi"),
+        ("POST", "/r/1/mese/2026/10/finalizza"),
+        ("POST", "/r/1/timbrature/1/elimina"),
+        ("POST", "/r/1/contratto"),
+        ("POST", "/r/1/accesso"),
+        ("GET", "/rapporti"),
+        ("POST", "/rapporti"),
     ]
     for method, path in forbidden:
         assert w.request(method, path).status_code == 403, path
     # The employer still sees everything.
-    assert 'action="/eventi"' in c.get("/mese/2026/10").text
+    assert 'action="/r/1/eventi"' in c.get("/r/1/mese/2026/10").text
 
 
-def test_worker_password_must_differ_and_be_set_to_open(tmp_path: Path) -> None:
-    same = Settings(
-        data_dir=tmp_path,
-        rates_dir=RATES_DIR,
-        password=PASSWORD,
-        worker_password=PASSWORD,
-        mileage=MILEAGE,
-    )
-    with pytest.raises(ValueError, match="diversa"):
-        create_app(same, end_of_2026, None)
-    off = Settings(
-        data_dir=tmp_path,
-        rates_dir=RATES_DIR,
-        password=PASSWORD,
-        worker_password="",
-        mileage=MILEAGE,
-    )
-    anyone = TestClient(create_app(off, end_of_2026, None), headers=basic(""))
-    assert anyone.get("/mese/2026/10").status_code == 401
+def test_worker_password_is_hers_alone(tmp_path: Path) -> None:
+    c = hired(tmp_path)
+    sitter = {**CONTRACT_FORM, "lavoratore_nome": "Luisa Sassaroli"}
+    c.post("/rapporti", data=sitter)
+    carmen = with_worker(c, 1, WORKER)
+    # Her password opens her rapporto only.
+    assert carmen.get("/r/1/mese/2026/10").status_code == 200
+    assert carmen.get("/r/2/mese/2026/10").status_code == 403
+    assert carmen.post("/r/2/timbra/inizio").status_code == 403
+    # A password identifies one rapporto: not the employer's, not another worker's.
+    for taken in (PASSWORD, WORKER):
+        r = c.post("/r/2/accesso", data={"password": taken})
+        assert r.status_code == 400 and "già in uso" in r.text
+    assert c.post("/r/2/accesso", data={"password": "corto"}).status_code == 400
+    # Taken away: she is nobody.
+    assert c.post("/r/1/accesso", data={"togli": "1"}).status_code == 303
+    assert carmen.get("/r/1/mese/2026/10").status_code == 401
 
 
 def test_each_turno_carries_its_rimborso(tmp_path: Path) -> None:
     # Tue 13/10: morning, then two afternoon punches (one turno: one trip, not two).
     c, _ = punching(tmp_path, rome(2026, 10, 13, 19, 0))
     for inizio, fine in (("08:00", "08:45"), ("15:45", "16:30"), ("16:40", "18:00")):
-        c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": inizio, "fine": fine})
-    page = c.get("/mese/2026/10").text
+        c.post("/r/1/timbrature", data={"giorno": "2026-10-13", "inizio": inizio, "fine": fine})
+    page = c.get("/r/1/mese/2026/10").text
     # 12 km x 0,4463 = 5,3556 -> 5,36 a turno; 2 turni = 24 km, 10,72 EUR.
     assert page.count("trasferta 12,00 km, 5,36 €") == 2
     assert "Trasferte del mese: 2 turni, 24,00 km," in page and "rimborso 10,72 €" in page
@@ -704,18 +750,18 @@ def test_each_turno_carries_its_rimborso(tmp_path: Path) -> None:
     da_pagare = slip.split('<td colspan="3">Da pagare</td><td>')[1].split(" €")[0]
     assert italian(da_pagare) - italian(netto) == Decimal("10.72")
     # The afternoon was done with the employer's car: no rimborso for it.
-    r = c.post("/turni/auto", data={"giorno": "2026-10-13", "mattina": "0", "datore": "1"})
+    r = c.post("/r/1/turni/auto", data={"giorno": "2026-10-13", "mattina": "0", "datore": "1"})
     assert r.status_code == 303
-    page = c.get("/mese/2026/10").text
+    page = c.get("/r/1/mese/2026/10").text
     assert page.count("trasferta 12,00 km, 5,36 €") == 1
     assert "auto del datore, niente trasferta" in page
     assert "Trasferte del mese: 1 turni, 12,00 km," in page and "rimborso 5,36 €" in page
     # And back to hers.
-    c.post("/turni/auto", data={"giorno": "2026-10-13", "mattina": "0", "datore": "0"})
-    assert "rimborso 10,72 €" in c.get("/mese/2026/10").text
+    c.post("/r/1/turni/auto", data={"giorno": "2026-10-13", "mattina": "0", "datore": "0"})
+    assert "rimborso 10,72 €" in c.get("/r/1/mese/2026/10").text
     # Only the employer says whose car it was.
-    w = TestClient(c.app, headers=basic(WORKER), follow_redirects=False)
-    assert w.post("/turni/auto", data={}).status_code == 403
+    w = with_worker(c, 1, WORKER)
+    assert w.post("/r/1/turni/auto", data={}).status_code == 403
 
 
 def italian(amount: str) -> Decimal:
@@ -725,7 +771,7 @@ def italian(amount: str) -> Decimal:
 def test_payslip_hours_are_shown_as_hours_and_minutes(tmp_path: Path) -> None:
     # 15:45-17:22 = 97 min, kept as 1,62 h (97,2 min): shown as 1 h 37 min, INPS rows too.
     c, _ = punching(tmp_path, rome(2026, 10, 13, 19, 0))
-    c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "17:22"})
-    page = c.get("/mese/2026/10").text.split("Lavorato")[1]
+    c.post("/r/1/timbrature", data={"giorno": "2026-10-13", "inizio": "15:45", "fine": "17:22"})
+    page = c.get("/r/1/mese/2026/10").text.split("Lavorato")[1]
     assert "<td>Ore ordinarie</td><td>1 h 37 min</td>" in page
     assert "Contributi INPS a carico lavoratore (1 h 37 min " in page

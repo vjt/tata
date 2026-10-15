@@ -1,9 +1,10 @@
-"""FastAPI app: server-rendered pages, one password, no JavaScript."""
+"""FastAPI app: server-rendered pages, the employer's password and one per worker, no JS."""
 
 # Route handlers are registered by decorator and never called by name; pyright cannot see that.
 # pyright: reportUnusedFunction=false
 
 import calendar
+import hashlib
 import os
 import re
 import secrets
@@ -50,7 +51,7 @@ from tata.payslip import Payslip, compute_payslip, rimborso_line, trip_cost
 from tata.pdf import render_pdf
 from tata.presenza import History, presence_days
 from tata.rates import RatesBook
-from tata.store import Store
+from tata.store import RapportoStore, Store
 from tata.timbratura import (
     Action,
     Shortfall,
@@ -72,20 +73,39 @@ ROME = ZoneInfo("Europe/Rome")
 class Settings(Frozen):
     data_dir: Path
     rates_dir: Path
-    password: str  # the employer: everything
-    worker_password: str  # the worker: reads the month, punches; empty = no worker access
+    password: str  # the employer: every rapporto
     mileage: Mileage | None  # rimborso trasferte per turno; None = no rimborso
 
 
 Clock = Callable[[], datetime]
-PresenceSource = Callable[[datetime, datetime], History]  # wifi presence from start to end
-HA_VARS = ("TATA_HA_URL", "TATA_HA_TOKEN", "TATA_HA_ENTITY")
+# Wifi presence of a Home Assistant tracker (each rapporto names its own) from start to end.
+PresenceSource = Callable[[str, datetime, datetime], History]
+HA_VARS = ("TATA_HA_URL", "TATA_HA_TOKEN")
 MILEAGE_VARS = ("TATA_RIMBORSO_KM", "TATA_RIMBORSO_EURO_KM")
-RETURN_TO = re.compile(r"/presenza/\d{4}/\d{1,2}")
-WORKER_ROUTES = {  # all the worker may do: read the month and its payslip, punch, by hand too
-    "GET": re.compile(r"/|/timbra|/mese/\d{4}/\d{1,2}(/prospetto\.pdf)?"),
-    "POST": re.compile(r"/timbra/(inizio|fine)|/timbrature"),
-}
+RETURN_TO = re.compile(r"/r/\d+/presenza/\d{4}/\d{1,2}")
+SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
+
+
+def worker_routes(cid: int) -> dict[str, re.Pattern[str]]:
+    """All a worker may do, in her rapporto only: read the month and its payslip, punch."""
+    base = f"/r/{cid}"
+    return {
+        "GET": re.compile(rf"/|/timbra|{base}/|{base}/timbra|{base}/mese/\d{{4}}/\d{{1,2}}"
+                          rf"(/prospetto\.pdf)?"),
+        "POST": re.compile(rf"{base}/timbra/(inizio|fine)|{base}/timbrature"),
+    }  # fmt: skip
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.scrypt(password.encode(), salt=salt, **SCRYPT)
+    return f"scrypt${salt.hex()}${digest.hex()}"
+
+
+def check_password(password: str, stored: str) -> bool:
+    _, salt, digest = stored.split("$")
+    given = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), **SCRYPT)
+    return secrets.compare_digest(given, bytes.fromhex(digest))
 
 
 def rome_now() -> datetime:
@@ -95,8 +115,8 @@ def rome_now() -> datetime:
 def app_from_env() -> FastAPI:
     """The only place that reads the environment (uvicorn --factory entry point).
 
-    Wifi presence is optional: all three TATA_HA_* variables, or none. So is the worker's
-    access, TATA_WORKER_PASSWORD, and the rimborso trasferte: both TATA_RIMBORSO_*, or none.
+    Wifi presence is optional: both TATA_HA_* variables, or none (each rapporto names its
+    tracker). So is the rimborso trasferte: both TATA_RIMBORSO_*, or none.
     """
     ha = [os.environ.get(name, "") for name in HA_VARS]
     if any(ha) and not all(ha):
@@ -109,7 +129,6 @@ def app_from_env() -> FastAPI:
             data_dir=Path(os.environ["TATA_DATA_DIR"]),
             rates_dir=Path(os.environ["TATA_RATES_DIR"]),
             password=os.environ["TATA_PASSWORD"],
-            worker_password=os.environ.get("TATA_WORKER_PASSWORD", ""),
             mileage=Mileage(km_turno=Decimal(km), euro_km=Decimal(euro_km)) if km else None,
         ),
         rome_now,
@@ -117,8 +136,8 @@ def app_from_env() -> FastAPI:
     )
 
 
-def _home_assistant(base: str, token: str, entity: str) -> PresenceSource:
-    def history(start: datetime, end: datetime) -> History:
+def _home_assistant(base: str, token: str) -> PresenceSource:
+    def history(entity: str, start: datetime, end: datetime) -> History:
         return fetch_history(base, token, entity, start, end)
 
     return history
@@ -127,8 +146,6 @@ def _home_assistant(base: str, token: str, entity: str) -> PresenceSource:
 def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) -> FastAPI:
     if not settings.password:
         raise ValueError("TATA_PASSWORD vuota")
-    if settings.worker_password == settings.password:
-        raise ValueError("TATA_WORKER_PASSWORD deve essere diversa da TATA_PASSWORD")
     store = Store(settings.data_dir / "tata.sqlite")
     book = RatesBook(settings.rates_dir)
     templates = _templates()
@@ -137,19 +154,19 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
     def auth(
         request: Request, credentials: Annotated[HTTPBasicCredentials, Depends(basic)]
     ) -> None:
-        """Who is asking: the employer, the worker (only WORKER_ROUTES, 403 elsewhere), or 401."""
-        given = credentials.password.encode()
+        """Who is asking: the employer, a worker (her rapporto's routes only, 403 elsewhere),
+        or nobody (401). A worker's password identifies her rapporto."""
         request.state.worker = False
-        if secrets.compare_digest(given, settings.password.encode()):
+        if secrets.compare_digest(credentials.password.encode(), settings.password.encode()):
             return
-        if settings.worker_password and secrets.compare_digest(
-            given, settings.worker_password.encode()
-        ):
-            request.state.worker = True
-            allowed = WORKER_ROUTES.get(request.method)
-            if allowed is None or not allowed.fullmatch(request.url.path):
-                raise HTTPException(403)
-            return
+        for cid, stored in store.worker_hashes().items():
+            if check_password(credentials.password, stored):
+                request.state.worker = True
+                request.state.rapporto = cid
+                allowed = worker_routes(cid).get(request.method)
+                if allowed is None or not allowed.fullmatch(request.url.path):
+                    raise HTTPException(403)
+                return
         raise HTTPException(401, headers={"WWW-Authenticate": "Basic"})
 
     app = FastAPI(dependencies=[Depends(auth)], docs_url=None, redoc_url=None, openapi_url=None)
@@ -179,15 +196,13 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             request, "errore.html", {"message": f"non trovato: {exc}"}, status_code=404
         )
 
-    def require_contract() -> Contract:
-        contract = store.contract()
-        if contract is None:
-            raise _Redirect("/contratto")
-        return contract
-
     @app.exception_handler(_Redirect)
     async def redirect(request: Request, exc: _Redirect) -> RedirectResponse:
         return RedirectResponse(exc.location, status_code=303)
+
+    def page(rs: RapportoStore, contract: Contract) -> dict[str, object]:
+        """What every page of a rapporto needs: its URL prefix and whose it is."""
+        return {"base": f"/r/{rs.id}", "who": contract.lavoratore_nome}
 
     def check_events(contract: Contract, events: list[Event]) -> None:
         """Raise ValueError now, at write time, rather than bricking a month page later."""
@@ -197,13 +212,13 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
     def minute_of(moment: datetime) -> int:
         return moment.hour * 60 + moment.minute
 
-    def pending(contract: Contract, year: int, month: int) -> list[Shortfall]:
+    def pending(rs: RapportoStore, contract: Contract, year: int, month: int) -> list[Shortfall]:
         """Shortfalls of an open month; a finalized month has nothing left to confirm."""
-        if store.final_payslip(year, month) is not None:
+        if rs.final_payslip(year, month) is not None:
             return []
         return [
             s
-            for s in shortfalls(contract, store.events(), store.punches(), now())
+            for s in shortfalls(contract, rs.events(), rs.punches(), now())
             if (s.day.year, s.day.month) == (year, month)
         ]
 
@@ -211,7 +226,7 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         if not contract.employed_on(punch.day):
             raise ValueError(f"il {punch.day} è fuori dal rapporto di lavoro")
 
-    def save_punch(contract: Contract, draft: Punch) -> None:
+    def save_punch(rs: RapportoStore, contract: Contract, draft: Punch) -> None:
         """Validate a closed punch and its EXTRA against everything stored, then write it."""
         if draft.end is None:
             raise ValueError("ora di uscita mancante")
@@ -221,28 +236,111 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             draft.day == moment.date() and draft.end > minute_of(moment)
         ):
             raise ValueError("non si timbra nel futuro: l'uscita è dopo adesso")
-        others = [p for p in store.punches() if p.id != draft.id]
+        others = [p for p in rs.punches() if p.id != draft.id]
         check_punches([*others, draft])
         extras = overruns(contract, draft)
         drafts = [Event(id=0, day=draft.day, kind=EventKind.EXTRA, span=s, note="") for s in extras]
-        check_events(contract, store.events() + drafts)
+        check_events(contract, rs.events() + drafts)
         if draft.id == 0:
-            store.add_punch(draft.day, draft.start, draft.end, extras)
+            rs.add_punch(draft.day, draft.start, draft.end, extras)
         else:
-            store.close_punch(draft.id, draft.end, extras)
+            rs.close_punch(draft.id, draft.end, extras)
+
+    def paid_events(rs: RapportoStore, contract: Contract, year: int, month: int) -> list[Event]:
+        """The events pay is computed from: the stored ones, and the unpunched time as ASSENZA
+        up to the end of the month."""
+        events = rs.events()
+        return events + unpunched(contract, events, rs.punches(), year, month)
+
+    def source(rs: RapportoStore, contract: Contract) -> PayslipSource:
+        def get(year: int, month: int) -> Payslip:
+            final = rs.final_payslip(year, month)
+            if final is not None:
+                return final
+            events = paid_events(rs, contract, year, month)
+            rimborso = None
+            if settings.mileage is not None:
+                month_turni = turni(rs.punches(), rs.employer_car(), year, month)
+                rimborso = rimborso_line(settings.mileage, sum(t.own_car for t in month_turni))
+            return compute_payslip(contract, events, year, month, book.get(year), rimborso)
+
+        return get
+
+    def landing(request: Request, suffix: str) -> RedirectResponse:
+        """Where / and /timbra go: the worker's own rapporto, the only open one, or the list."""
+        if request.state.worker:
+            return RedirectResponse(f"/r/{request.state.rapporto}{suffix}", status_code=303)
+        today = now().date()
+        open_ = [r for r in store.rapporti() if r.open_on(today)]
+        if len(open_) == 1:
+            return RedirectResponse(f"/r/{open_[0].id}{suffix}", status_code=303)
+        return RedirectResponse("/rapporti", status_code=303)
+
+    @app.get("/")
+    def home(request: Request) -> RedirectResponse:
+        return landing(request, "/")
+
+    @app.get("/timbra")
+    def punch_home(request: Request) -> RedirectResponse:
+        return landing(request, "/timbra")
+
+    # ---- rapporti
+
+    @app.get("/rapporti", response_class=HTMLResponse)
+    def rapporti_page(request: Request) -> HTMLResponse:
+        today = now().date()
+        rapporti = sorted(store.rapporti(), key=lambda r: (not r.open_on(today), -r.id))
+        return templates.TemplateResponse(
+            request, "rapporti.html", {"rapporti": rapporti, "today": today}
+        )
+
+    @app.get("/rapporti/nuovo", response_class=HTMLResponse)
+    def new_rapporto_form(request: Request) -> HTMLResponse:
+        known = store.rapporti()
+        datore = (
+            (known[-1].contract.datore_nome, known[-1].contract.datore_cf) if known else ("", "")
+        )
+        return templates.TemplateResponse(
+            request,
+            "contratto.html",
+            {
+                "contract": None,
+                "datore": datore,
+                "ha_entity": "",
+                "action": "/rapporti",
+                "livelli": list(Livello),
+                "giorni": GIORNI,
+            },
+        )
+
+    @app.post("/rapporti")
+    async def new_rapporto(request: Request) -> RedirectResponse:
+        form = await request.form()
+        contract = _contract(form)
+        cid = store.add_rapporto(contract)
+        store.set_ha_entity(cid, _field(form, "ha_entity"))
+        return RedirectResponse(f"/r/{cid}/", status_code=303)
+
+    @app.get("/r/{cid}/")
+    def rapporto_home(cid: int) -> RedirectResponse:
+        store.rapporto(cid)
+        moment = now()
+        return RedirectResponse(f"/r/{cid}/mese/{moment.year}/{moment.month}", status_code=303)
 
     # ---- cartellino
 
-    @app.get("/timbra", response_class=HTMLResponse)
-    def punch_page(request: Request) -> HTMLResponse:
-        contract = require_contract()
-        punches = store.punches()
+    @app.get("/r/{cid}/timbra", response_class=HTMLResponse)
+    def punch_page(request: Request, cid: int) -> HTMLResponse:
+        rs = store.rapporto(cid)
+        contract = rs.contract()
+        punches = rs.punches()
         moment = now()
         open_ = next((p for p in punches if p.end is None), None)
         return templates.TemplateResponse(
             request,
             "timbra.html",
             {
+                **page(rs, contract),
                 "proposal": propose(contract, punches, moment),
                 "open": open_,
                 "stale": open_ is not None and open_.day != moment.date(),
@@ -251,22 +349,24 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             },
         )
 
-    @app.post("/timbra/inizio")
-    def punch_in() -> RedirectResponse:
-        contract = require_contract()
+    @app.post("/r/{cid}/timbra/inizio")
+    def punch_in(cid: int) -> RedirectResponse:
+        rs = store.rapporto(cid)
+        contract = rs.contract()
         moment = now()
         draft = Punch(id=0, day=moment.date(), start=minute_of(moment), end=None)
         check_employed(contract, draft)
-        check_punches([*store.punches(), draft])
-        store.add_punch(draft.day, draft.start, None, [])
-        return RedirectResponse("/timbra", status_code=303)
+        check_punches([*rs.punches(), draft])
+        rs.add_punch(draft.day, draft.start, None, [])
+        return RedirectResponse(f"/r/{cid}/timbra", status_code=303)
 
-    @app.post("/timbra/fine")
-    async def punch_out(request: Request) -> RedirectResponse:
-        contract = require_contract()
+    @app.post("/r/{cid}/timbra/fine")
+    async def punch_out(request: Request, cid: int) -> RedirectResponse:
+        rs = store.rapporto(cid)
+        contract = rs.contract()
         form = await request.form()
         alle, moment = _field(form, "alle"), now()
-        open_ = next((p for p in store.punches() if p.end is None), None)
+        open_ = next((p for p in rs.punches() if p.end is None), None)
         if open_ is None:
             raise ValueError("nessuna timbratura aperta")
         if alle:
@@ -277,96 +377,89 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             raise ValueError(f"indica l'ora di uscita del {open_.day:%d/%m/%Y}")
         # Built explicitly, not model_copy (which skips validation): a same-minute exit must
         # raise the Span error (400) before anything is written.
-        save_punch(contract, Punch(id=open_.id, day=open_.day, start=open_.start, end=end))
-        return RedirectResponse("/timbra", status_code=303)
-
-    def paid_events(contract: Contract, year: int, month: int) -> list[Event]:
-        """The events pay is computed from: the stored ones, and the unpunched time as ASSENZA
-        up to the end of the month."""
-        events = store.events()
-        return events + unpunched(contract, events, store.punches(), year, month)
-
-    def source(contract: Contract) -> PayslipSource:
-        def get(year: int, month: int) -> Payslip:
-            final = store.final_payslip(year, month)
-            if final is not None:
-                return final
-            events = paid_events(contract, year, month)
-            rimborso = None
-            if settings.mileage is not None:
-                month_turni = turni(store.punches(), store.employer_car(), year, month)
-                rimborso = rimborso_line(settings.mileage, sum(t.own_car for t in month_turni))
-            return compute_payslip(contract, events, year, month, book.get(year), rimborso)
-
-        return get
-
-    @app.get("/")
-    def home() -> RedirectResponse:
-        require_contract()
-        moment = now()
-        return RedirectResponse(f"/mese/{moment.year}/{moment.month}", status_code=303)
+        save_punch(rs, contract, Punch(id=open_.id, day=open_.day, start=open_.start, end=end))
+        return RedirectResponse(f"/r/{cid}/timbra", status_code=303)
 
     # ---- contract
 
-    @app.get("/contratto", response_class=HTMLResponse)
-    def contract_form(request: Request) -> HTMLResponse:
+    @app.get("/r/{cid}/contratto", response_class=HTMLResponse)
+    def contract_form(request: Request, cid: int) -> HTMLResponse:
+        rs = store.rapporto(cid)
+        contract = rs.contract()
+        rapporto = next(r for r in store.rapporti() if r.id == cid)
         return templates.TemplateResponse(
             request,
             "contratto.html",
-            {"contract": store.contract(), "livelli": list(Livello), "giorni": GIORNI},
+            {
+                **page(rs, contract),
+                "contract": contract,
+                "ha_entity": rapporto.ha_entity,
+                "worker_access": rapporto.worker_access,
+                "action": f"/r/{cid}/contratto",
+                "livelli": list(Livello),
+                "giorni": GIORNI,
+            },
         )
 
-    @app.post("/contratto")
-    async def contract_save(request: Request) -> RedirectResponse:
+    @app.post("/r/{cid}/contratto")
+    async def contract_save(request: Request, cid: int) -> RedirectResponse:
+        rs = store.rapporto(cid)
         form = await request.form()
-        day, month = (int(x) for x in _field(form, "patrono").split("/"))
-        cessazione = _field(form, "cessazione")
-        contract = Contract(
-            datore_nome=_field(form, "datore_nome"),
-            datore_cf=_field(form, "datore_cf").upper(),
-            lavoratore_nome=_field(form, "lavoratore_nome"),
-            lavoratore_cf=_field(form, "lavoratore_cf").upper(),
-            livello=Livello(_field(form, "livello")),
-            paga_oraria=_decimal(_field(form, "paga_oraria")),
-            tab_h="tab_h" in form,
-            assunzione=date.fromisoformat(_field(form, "assunzione")),
-            cessazione=date.fromisoformat(cessazione) if cessazione else None,
-            patrono_mese=month,
-            patrono_giorno=day,
-            orario=tuple(_spans(_field(form, f"orario_{d}")) for d in range(7)),
-        )
+        contract = _contract(form)
         # The contract has no history: the EXTRA of every closed punch in an open month is
         # recomputed against the new schedule, validated together with it, saved with it.
-        punches = store.punches()
+        punches = rs.punches()
         for p in punches:
             check_employed(contract, p)
         recomputed = {
             p.id: overruns(contract, p)
             for p in punches
-            if p.end is not None and store.final_payslip(p.day.year, p.day.month) is None
+            if p.end is not None and rs.final_payslip(p.day.year, p.day.month) is None
         }
-        links = store.punch_links()
-        kept = [e for e in store.events() if links.get(e.id) not in recomputed]
+        links = rs.punch_links()
+        kept = [e for e in rs.events() if links.get(e.id) not in recomputed]
         drafts = [
             Event(id=0, day=p.day, kind=EventKind.EXTRA, span=s, note="")
             for p in punches
             for s in recomputed.get(p.id, [])
         ]
         check_events(contract, kept + drafts)
-        store.save_contract(contract, recomputed)
-        return RedirectResponse("/", status_code=303)
+        rs.save_contract(contract, recomputed)
+        store.set_ha_entity(cid, _field(form, "ha_entity"))
+        return RedirectResponse(f"/r/{cid}/", status_code=303)
+
+    @app.post("/r/{cid}/accesso")
+    async def worker_access(request: Request, cid: int) -> RedirectResponse:
+        """Give, change or take away the worker's own password."""
+        store.rapporto(cid)
+        form = await request.form()
+        if form.get("togli"):
+            store.set_worker_hash(cid, None)
+            return RedirectResponse(f"/r/{cid}/contratto", status_code=303)
+        password = _field(form, "password")
+        if len(password) < 8:
+            raise ValueError("la password deve avere almeno 8 caratteri")
+        if secrets.compare_digest(password.encode(), settings.password.encode()) or any(
+            check_password(password, h)
+            for other, h in store.worker_hashes().items()
+            if other != cid
+        ):
+            raise ValueError("password già in uso: deve individuare un solo rapporto")
+        store.set_worker_hash(cid, hash_password(password))
+        return RedirectResponse(f"/r/{cid}/contratto", status_code=303)
 
     # ---- month
 
-    @app.get("/mese/{year}/{month}", response_class=HTMLResponse)
-    def month_page(request: Request, year: int, month: int) -> HTMLResponse:
-        contract = require_contract()
-        events = store.events()
+    @app.get("/r/{cid}/mese/{year}/{month}", response_class=HTMLResponse)
+    def month_page(request: Request, cid: int, year: int, month: int) -> HTMLResponse:
+        rs = store.rapporto(cid)
+        contract = rs.contract()
+        events = rs.events()
         rates = book.get(year)
-        slip = source(contract)(year, month)
-        final = store.final_payslip(year, month) is not None
+        slip = source(rs, contract)(year, month)
+        final = rs.final_payslip(year, month) is not None
         planned = None if final else compute_payslip(contract, events, year, month, rates, None)
-        paid = paid_events(contract, year, month)
+        paid = paid_events(rs, contract, year, month)
         work = {d.day: d for d in month_work(contract, paid, year, month, rates)}
         weeks = calendar.Calendar().monthdatescalendar(year, month)
         month_events = [e for e in events if (e.day.year, e.day.month) == (year, month)]
@@ -377,6 +470,7 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             request,
             "mese.html",
             {
+                **page(rs, contract),
                 "year": year,
                 "month": month,
                 "mese": MESI[month],
@@ -388,92 +482,98 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "slip": slip,
                 "planned": planned,
                 "trips": {
-                    t.punch_id: t for t in turni(store.punches(), store.employer_car(), year, month)
+                    t.punch_id: t for t in turni(rs.punches(), rs.employer_car(), year, month)
                 },
                 "mileage": settings.mileage,
                 "trip_cost": trip_cost(settings.mileage) if settings.mileage else None,
-                "punches": [
-                    p for p in store.punches() if (p.day.year, p.day.month) == (year, month)
-                ],
-                "pending": pending(contract, year, month),
+                "punches": [p for p in rs.punches() if (p.day.year, p.day.month) == (year, month)],
+                "pending": pending(rs, contract, year, month),
                 "final": final,
-                "tfr": tfr(contract, store.advances(), year, month, source(contract), book),
-                "prev": f"/mese/{prev_y}/{prev_m}",
-                "next": f"/mese/{next_y}/{next_m}",
+                "tfr": tfr(contract, rs.advances(), year, month, source(rs, contract), book),
+                "prev": f"/r/{cid}/mese/{prev_y}/{prev_m}",
+                "next": f"/r/{cid}/mese/{next_y}/{next_m}",
                 "giorni": GIORNI,
                 "selected": request.query_params.get("giorno", date(year, month, 1).isoformat()),
             },
         )
 
-    @app.get("/mese/{year}/{month}/prospetto.pdf")
-    def payslip_pdf(request: Request, year: int, month: int) -> Response:
-        contract = require_contract()
-        slip = source(contract)(year, month)
+    @app.get("/r/{cid}/mese/{year}/{month}/prospetto.pdf")
+    def payslip_pdf(cid: int, year: int, month: int) -> Response:
+        rs = store.rapporto(cid)
+        contract = rs.contract()
+        slip = source(rs, contract)(year, month)
         html = templates.get_template("prospetto_pdf.html").render(
             slip=slip,
             mese=MESI[month],
-            tfr=tfr(contract, store.advances(), year, month, source(contract), book),
+            tfr=tfr(contract, rs.advances(), year, month, source(rs, contract), book),
             css=(HERE / "static" / "pdf.css").read_text(),
         )
-        return _pdf(render_pdf(html), f"prospetto-{year}-{month:02d}.pdf")
+        name = contract.lavoratore_nome.split()[-1].lower()
+        return _pdf(render_pdf(html), f"prospetto-{name}-{year}-{month:02d}.pdf")
 
-    @app.post("/mese/{year}/{month}/finalizza")
-    def finalize(year: int, month: int) -> RedirectResponse:
-        contract = require_contract()
+    @app.post("/r/{cid}/mese/{year}/{month}/finalizza")
+    def finalize(cid: int, year: int, month: int) -> RedirectResponse:
+        rs = store.rapporto(cid)
+        contract = rs.contract()
         py, pm = (year - 1, 12) if month == 1 else (year, month - 1)
-        if employed_months(contract, py, pm)[-1:] == [pm] and store.final_payslip(py, pm) is None:
+        if employed_months(contract, py, pm)[-1:] == [pm] and rs.final_payslip(py, pm) is None:
             raise ValueError(f"finalizza prima {MESI[pm]} {py}: i mesi si chiudono in ordine")
-        if any(
-            p.end is None for p in store.punches() if (p.day.year, p.day.month) == (year, month)
-        ):
+        if any(p.end is None for p in rs.punches() if (p.day.year, p.day.month) == (year, month)):
             raise ValueError(f"c'è una timbratura aperta in {MESI[month]} {year}: chiudila prima")
-        if pending(contract, year, month):
+        if pending(rs, contract, year, month):
             raise ValueError(f"ci sono mancanze da confermare in {MESI[month]} {year}")
         if now().date() < date(year + month // 12, month % 12 + 1, 1):
             raise ValueError(f"{MESI[month]} {year} non è ancora finito")
-        store.finalize(source(contract)(year, month))
-        return RedirectResponse(f"/mese/{year}/{month}", status_code=303)
+        rs.finalize(source(rs, contract)(year, month))
+        return RedirectResponse(f"/r/{cid}/mese/{year}/{month}", status_code=303)
 
-    @app.post("/timbrature")
-    async def add_punch(request: Request) -> RedirectResponse:
-        contract = require_contract()
+    @app.post("/r/{cid}/timbrature")
+    async def add_punch(request: Request, cid: int) -> RedirectResponse:
+        rs = store.rapporto(cid)
+        contract = rs.contract()
         form = await request.form()
         day = date.fromisoformat(_field(form, "giorno"))
         s = Span.parse(f"{_field(form, 'inizio')}-{_field(form, 'fine')}")
-        save_punch(contract, Punch(id=0, day=day, start=s.start, end=s.end))
+        save_punch(rs, contract, Punch(id=0, day=day, start=s.start, end=s.end))
         back = form.get("torna")
-        if isinstance(back, str) and RETURN_TO.fullmatch(back):
+        if isinstance(back, str) and RETURN_TO.fullmatch(back) and back.startswith(f"/r/{cid}/"):
             return RedirectResponse(back, status_code=303)
         if day == now().date():
-            return RedirectResponse("/timbra", status_code=303)
-        return RedirectResponse(f"/mese/{day.year}/{day.month}", status_code=303)
+            return RedirectResponse(f"/r/{cid}/timbra", status_code=303)
+        return RedirectResponse(f"/r/{cid}/mese/{day.year}/{day.month}", status_code=303)
 
-    @app.post("/turni/auto")
-    async def turno_car(request: Request) -> RedirectResponse:
+    @app.post("/r/{cid}/turni/auto")
+    async def turno_car(request: Request, cid: int) -> RedirectResponse:
         """Whose car a turno was done with: the employer's pays no rimborso."""
+        rs = store.rapporto(cid)
         form = await request.form()
         day = date.fromisoformat(_field(form, "giorno"))
-        store.set_employer_car(day, _field(form, "mattina") == "1", _field(form, "datore") == "1")
-        return RedirectResponse(f"/mese/{day.year}/{day.month}#cartellino", status_code=303)
+        rs.set_employer_car(day, _field(form, "mattina") == "1", _field(form, "datore") == "1")
+        return RedirectResponse(f"/r/{cid}/mese/{day.year}/{day.month}#cartellino", status_code=303)
 
-    @app.post("/timbrature/{punch_id}/elimina")
-    def delete_punch(punch_id: int) -> RedirectResponse:
-        day = store.delete_punch(punch_id)
-        return RedirectResponse(f"/mese/{day.year}/{day.month}", status_code=303)
+    @app.post("/r/{cid}/timbrature/{punch_id}/elimina")
+    def delete_punch(cid: int, punch_id: int) -> RedirectResponse:
+        day = store.rapporto(cid).delete_punch(punch_id)
+        return RedirectResponse(f"/r/{cid}/mese/{day.year}/{day.month}", status_code=303)
 
     # ---- wifi presence
 
-    @app.get("/presenza")
-    def this_month_presence() -> RedirectResponse:
+    @app.get("/r/{cid}/presenza")
+    def this_month_presence(cid: int) -> RedirectResponse:
+        store.rapporto(cid)
         moment = now()
-        return RedirectResponse(f"/presenza/{moment.year}/{moment.month}", status_code=303)
+        return RedirectResponse(f"/r/{cid}/presenza/{moment.year}/{moment.month}", status_code=303)
 
-    @app.get("/presenza/{year}/{month}", response_class=HTMLResponse)
-    def presence_page(request: Request, year: int, month: int) -> HTMLResponse:
+    @app.get("/r/{cid}/presenza/{year}/{month}", response_class=HTMLResponse)
+    def presence_page(request: Request, cid: int, year: int, month: int) -> HTMLResponse:
         """Wifi sessions and the punches they suggest; the employer confirms each one."""
-        require_contract()
+        rs = store.rapporto(cid)
+        contract = rs.contract()
+        entity = next(r.ha_entity for r in store.rapporti() if r.id == cid)
         if presence is None:
             raise ValueError(f"presenza wifi non configurata: imposta {', '.join(HA_VARS)}")
+        if not entity:
+            raise ValueError("presenza wifi: indica nel contratto il tracker del telefono")
         moment = now()
         first = date(year, month, 1)
         last = min(date(year, month, calendar.monthrange(year, month)[1]), moment.date())
@@ -481,10 +581,11 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         if first <= last:
             start = datetime.combine(first, time(0), ROME)
             end = min(moment, datetime.combine(last + timedelta(days=1), time(0), ROME))
-            days = [d for d in presence_days(presence(start, end), first, last) if d.sessions]
+            history = presence(entity, start, end)
+            days = [d for d in presence_days(history, first, last) if d.sessions]
         punches = [
             p
-            for p in store.punches()
+            for p in rs.punches()
             if (p.day.year, p.day.month) == (year, month) and p.end is not None
         ]
         weeks: dict[date, int] = {}
@@ -495,6 +596,7 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             request,
             "presenza.html",
             {
+                **page(rs, contract),
                 "year": year,
                 "month": month,
                 "mese": MESI[month],
@@ -503,15 +605,16 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "today": moment.date(),
                 "minute": minute_of(moment),
                 "weeks": sorted(weeks.items()),
-                "here": f"/presenza/{year}/{month}",
+                "here": f"/r/{cid}/presenza/{year}/{month}",
             },
         )
 
     # ---- events
 
-    @app.post("/eventi")
-    async def add_event(request: Request) -> RedirectResponse:
-        contract = require_contract()
+    @app.post("/r/{cid}/eventi")
+    async def add_event(request: Request, cid: int) -> RedirectResponse:
+        rs = store.rapporto(cid)
+        contract = rs.contract()
         form = await request.form()
         kind = EventKind(_field(form, "kind"))
         first = date.fromisoformat(_field(form, "dal"))
@@ -526,35 +629,37 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             raise ValueError("nessun giorno dell'intervallo è utilizzabile per questo evento")
         note = _field(form, "note")
         drafts = [Event(id=0, day=day, kind=kind, span=span, note=note) for day in days]
-        check_events(contract, store.events() + drafts)
+        check_events(contract, rs.events() + drafts)
         for day in days:
-            store.add_event(day, kind, span, note)
-        return RedirectResponse(f"/mese/{first.year}/{first.month}", status_code=303)
+            rs.add_event(day, kind, span, note)
+        return RedirectResponse(f"/r/{cid}/mese/{first.year}/{first.month}", status_code=303)
 
-    @app.post("/eventi/{event_id}/elimina")
-    def delete_event(event_id: int) -> RedirectResponse:
-        day = store.delete_event(event_id)
-        return RedirectResponse(f"/mese/{day.year}/{day.month}", status_code=303)
+    @app.post("/r/{cid}/eventi/{event_id}/elimina")
+    def delete_event(cid: int, event_id: int) -> RedirectResponse:
+        day = store.rapporto(cid).delete_event(event_id)
+        return RedirectResponse(f"/r/{cid}/mese/{day.year}/{day.month}", status_code=303)
 
     # ---- year
 
-    @app.get("/anno")
-    def this_year() -> RedirectResponse:
-        return RedirectResponse(f"/anno/{now().year}", status_code=303)
+    @app.get("/r/{cid}/anno")
+    def this_year(cid: int) -> RedirectResponse:
+        store.rapporto(cid)
+        return RedirectResponse(f"/r/{cid}/anno/{now().year}", status_code=303)
 
-    @app.get("/anno/{year}", response_class=HTMLResponse)
-    def year_page(request: Request, year: int) -> HTMLResponse:
-        contract = require_contract()
-        src = source(contract)
+    @app.get("/r/{cid}/anno/{year}", response_class=HTMLResponse)
+    def year_page(request: Request, cid: int, year: int) -> HTMLResponse:
+        rs = store.rapporto(cid)
+        contract = rs.contract()
+        src = source(rs, contract)
         months = employed_months(contract, year, 12)
         quarters = [
             quarter_contributions([src(year, m) for m in quarter_months(q) if m in months], year, q)
             for q in (1, 2, 3, 4)
             if any(m in months for m in quarter_months(q))
         ]
-        paid = {(p.year, p.quarter): p for p in store.payments()}
+        paid = {(p.year, p.quarter): p for p in rs.payments()}
         moment = now().date()
-        # Months after today are a projection from the schedule: TFR stops at today's month.
+        # Months after today are a projection: TFR stops at today's month.
         current = 12 if year < moment.year else (0 if year > moment.year else moment.month)
         last_month = min(months[-1] if months else 12, max(current, 1))
         projected = {q.quarter for q in quarters if quarter_months(q.quarter)[-1] > current}
@@ -562,29 +667,31 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             request,
             "anno.html",
             {
+                **page(rs, contract),
                 "year": year,
                 "quarters": quarters,
                 "paid": paid,
                 "projected": projected,
                 "slips": year_payslips(contract, year, 12, src),
                 "current": current,
-                "tfr": tfr(contract, store.advances(), year, last_month, src, book),
-                "advances": [a for a in store.advances() if a.day.year == year],
+                "tfr": tfr(contract, rs.advances(), year, last_month, src, book),
+                "advances": [a for a in rs.advances() if a.day.year == year],
                 "mesi": MESI,
             },
         )
 
-    @app.post("/anno/{year}/versamenti")
-    async def record_payment(request: Request, year: int) -> RedirectResponse:
-        contract = require_contract()
+    @app.post("/r/{cid}/anno/{year}/versamenti")
+    async def record_payment(request: Request, cid: int, year: int) -> RedirectResponse:
+        rs = store.rapporto(cid)
+        contract = rs.contract()
         form = await request.form()
         quarter = int(_field(form, "trimestre"))
-        src = source(contract)
+        src = source(rs, contract)
         months = employed_months(contract, year, 12)
         q = quarter_contributions(
             [src(year, m) for m in quarter_months(quarter) if m in months], year, quarter
         )
-        store.record_payment(
+        rs.record_payment(
             Payment(
                 year=year,
                 quarter=quarter,
@@ -595,30 +702,33 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 totale=q.totale,
             )
         )
-        return RedirectResponse(f"/anno/{year}", status_code=303)
+        return RedirectResponse(f"/r/{cid}/anno/{year}", status_code=303)
 
-    @app.post("/anno/{year}/anticipi")
-    async def add_advance(request: Request, year: int) -> RedirectResponse:
+    @app.post("/r/{cid}/anno/{year}/anticipi")
+    async def add_advance(request: Request, cid: int, year: int) -> RedirectResponse:
+        rs = store.rapporto(cid)
         form = await request.form()
-        store.add_advance(
+        rs.add_advance(
             date.fromisoformat(_field(form, "giorno")), _decimal(_field(form, "importo"))
         )
-        return RedirectResponse(f"/anno/{year}", status_code=303)
+        return RedirectResponse(f"/r/{cid}/anno/{year}", status_code=303)
 
-    @app.get("/anno/{year}/attestazione.pdf")
-    def attestazione_pdf(year: int) -> Response:
-        contract = require_contract()
+    @app.get("/r/{cid}/anno/{year}/attestazione.pdf")
+    def attestazione_pdf(cid: int, year: int) -> Response:
+        rs = store.rapporto(cid)
+        contract = rs.contract()
         html = templates.get_template("attestazione_pdf.html").render(
-            att=attestazione(contract, year, source(contract)),
+            att=attestazione(contract, year, source(rs, contract)),
             mesi=MESI,
             css=(HERE / "static" / "pdf.css").read_text(),
         )
-        return _pdf(render_pdf(html), f"attestazione-{year}.pdf")
+        name = contract.lavoratore_nome.split()[-1].lower()
+        return _pdf(render_pdf(html), f"attestazione-{name}-{year}.pdf")
 
     @app.get("/anno/{year}/deduzioni.yaml")
     def deduction_yaml(year: int) -> PlainTextResponse:
-        require_contract()
-        d = deduzione(store.payments(), year, book.get(year))
+        """The employer's deduction: every rapporto's payments, one cap (art. 10 c.2 TUIR)."""
+        d = deduzione(store.all_payments(), year, book.get(year))
         return PlainTextResponse(
             deduzione_yaml(d),
             media_type="application/yaml",
@@ -674,6 +784,25 @@ def _field(form: FormData, name: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"campo mancante: {name}")
     return value.strip()
+
+
+def _contract(form: FormData) -> Contract:
+    day, month = (int(x) for x in _field(form, "patrono").split("/"))
+    cessazione = _field(form, "cessazione")
+    return Contract(
+        datore_nome=_field(form, "datore_nome"),
+        datore_cf=_field(form, "datore_cf").upper(),
+        lavoratore_nome=_field(form, "lavoratore_nome"),
+        lavoratore_cf=_field(form, "lavoratore_cf").upper(),
+        livello=Livello(_field(form, "livello")),
+        paga_oraria=_decimal(_field(form, "paga_oraria")),
+        tab_h="tab_h" in form,
+        assunzione=date.fromisoformat(_field(form, "assunzione")),
+        cessazione=date.fromisoformat(cessazione) if cessazione else None,
+        patrono_mese=month,
+        patrono_giorno=day,
+        orario=tuple(_spans(_field(form, f"orario_{d}")) for d in range(7)),
+    )
 
 
 def _decimal(text: str) -> Decimal:

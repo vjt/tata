@@ -6,16 +6,19 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from tata.models import Contract, Event, EventKind, Payment, Punch, Span, TfrAdvance
+from tata.models import Contract, Event, EventKind, Payment, Punch, Rapporto, Span, TfrAdvance
 from tata.payslip import Payslip
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS contract (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    data TEXT NOT NULL
+    id INTEGER PRIMARY KEY,
+    data TEXT NOT NULL,
+    ha_entity TEXT NOT NULL,
+    worker_hash TEXT
 );
 CREATE TABLE IF NOT EXISTS event (
     id INTEGER PRIMARY KEY,
+    contract_id INTEGER NOT NULL REFERENCES contract (id),
     day TEXT NOT NULL,
     kind TEXT NOT NULL,
     span_start INTEGER,
@@ -23,25 +26,29 @@ CREATE TABLE IF NOT EXISTS event (
     note TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS payslip_final (
+    contract_id INTEGER NOT NULL REFERENCES contract (id),
     year INTEGER NOT NULL,
     month INTEGER NOT NULL,
     data TEXT NOT NULL,
     finalized_at TEXT NOT NULL,
-    PRIMARY KEY (year, month)
+    PRIMARY KEY (contract_id, year, month)
 );
 CREATE TABLE IF NOT EXISTS payment (
+    contract_id INTEGER NOT NULL REFERENCES contract (id),
     year INTEGER NOT NULL,
     quarter INTEGER NOT NULL,
     data TEXT NOT NULL,
-    PRIMARY KEY (year, quarter)
+    PRIMARY KEY (contract_id, year, quarter)
 );
 CREATE TABLE IF NOT EXISTS tfr_advance (
     id INTEGER PRIMARY KEY,
+    contract_id INTEGER NOT NULL REFERENCES contract (id),
     day TEXT NOT NULL,
     amount TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS punch (
     id INTEGER PRIMARY KEY,
+    contract_id INTEGER NOT NULL REFERENCES contract (id),
     day TEXT NOT NULL,
     start INTEGER NOT NULL,
     stop INTEGER
@@ -51,22 +58,66 @@ CREATE TABLE IF NOT EXISTS punch_event (
     punch_id INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS employer_car (
+    contract_id INTEGER NOT NULL REFERENCES contract (id),
     day TEXT NOT NULL,
     morning INTEGER NOT NULL,
-    PRIMARY KEY (day, morning)
+    PRIMARY KEY (contract_id, day, morning)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS one_open_punch ON punch ((stop IS NULL)) WHERE stop IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS one_open_punch ON punch (contract_id) WHERE stop IS NULL;
 """
+VERSION = 1  # PRAGMA user_version
+
+# Version 0 had one rapporto per installation: its rows all become rapporto 1.
+COPY_FROM_V0 = {
+    "contract": "INSERT INTO contract SELECT id, data, '', NULL FROM contract_v0",
+    "event": "INSERT INTO event SELECT id, 1, day, kind, span_start, span_end, note FROM event_v0",
+    "payslip_final": "INSERT INTO payslip_final SELECT 1, year, month, data, finalized_at "
+    "FROM payslip_final_v0",
+    "payment": "INSERT INTO payment SELECT 1, year, quarter, data FROM payment_v0",
+    "tfr_advance": "INSERT INTO tfr_advance SELECT id, 1, day, amount FROM tfr_advance_v0",
+    "punch": "INSERT INTO punch SELECT id, 1, day, start, stop FROM punch_v0",
+    "employer_car": "INSERT INTO employer_car SELECT 1, day, morning FROM employer_car_v0",
+}
+
+
+def _upgrade(db: sqlite3.Connection) -> None:
+    """Create the schema, migrating a version 0 database. One transaction: all or nothing."""
+    (version,) = db.execute("PRAGMA user_version").fetchone()
+    if version == VERSION:
+        return
+    if version != 0:
+        raise RuntimeError(f"database versione {version}, questa tata conosce fino alla {VERSION}")
+    tables = {name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    old = [t for t in COPY_FROM_V0 if t in tables]
+    db.execute("BEGIN")
+    try:
+        db.execute("DROP INDEX IF EXISTS one_open_punch")
+        for t in old:
+            db.execute(f"ALTER TABLE {t} RENAME TO {t}_v0")
+        for statement in SCHEMA.split(";"):
+            if statement.strip():
+                db.execute(statement)
+        for t in old:
+            db.execute(COPY_FROM_V0[t])
+            db.execute(f"DROP TABLE {t}_v0")
+        db.execute(f"PRAGMA user_version = {VERSION}")
+        db.execute("COMMIT")
+    except BaseException:
+        db.execute("ROLLBACK")
+        raise
 
 
 Row = tuple[object, ...]
 
 
-def _insert_extras(db: sqlite3.Connection, punch_id: int, day: date, extras: list[Span]) -> None:
+def _insert_extras(
+    db: sqlite3.Connection, contract_id: int, punch_id: int, day: date, extras: list[Span]
+) -> None:
     for s in extras:
         event_id = db.execute(
-            "INSERT INTO event (day, kind, span_start, span_end, note) VALUES (?, ?, ?, ?, ?)",
-            (day.isoformat(), EventKind.EXTRA.value, s.start, s.end, "timbratura"),
+            "INSERT INTO event (contract_id, day, kind, span_start, span_end, note) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (contract_id, day.isoformat(), EventKind.EXTRA.value, s.start, s.end, "timbratura"),
         ).lastrowid
         if event_id is None:  # would let punch_event auto-assign an unrelated id
             raise RuntimeError("sqlite non ha restituito un id")
@@ -83,13 +134,12 @@ def _delete_extras(db: sqlite3.Connection, punch_id: int) -> None:
     db.execute("DELETE FROM punch_event WHERE punch_id = ?", (punch_id,))
 
 
-class Store:
-    """One short-lived connection per call: no shared handle, nothing to close."""
+class RapportoStore:
+    """One rapporto's rows. One short-lived connection per call: nothing to close."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, contract_id: int) -> None:
         self._path = path
-        with closing(sqlite3.connect(path)) as db, db:
-            db.executescript(SCHEMA)
+        self.id = contract_id
 
     def _read(self, sql: str, params: tuple[object, ...]) -> list[Row]:
         with closing(sqlite3.connect(self._path)) as db:
@@ -105,9 +155,9 @@ class Store:
 
     # ---- contract
 
-    def contract(self) -> Contract | None:
-        rows = self._read("SELECT data FROM contract WHERE id = 1", ())
-        return Contract.model_validate_json(str(rows[0][0])) if rows else None
+    def contract(self) -> Contract:
+        rows = self._read("SELECT data FROM contract WHERE id = ?", (self.id,))
+        return Contract.model_validate_json(str(rows[0][0]))
 
     def save_contract(self, contract: Contract, punch_extras: dict[int, list[Span]]) -> None:
         """Saves the contract and, in the same transaction, replaces the EXTRA events of each
@@ -118,18 +168,18 @@ class Store:
         with closing(sqlite3.connect(self._path)) as db, db:
             for punch_id, extras in punch_extras.items():
                 _delete_extras(db, punch_id)
-                _insert_extras(db, punch_id, days[punch_id], extras)
+                _insert_extras(db, self.id, punch_id, days[punch_id], extras)
             db.execute(
-                "INSERT INTO contract (id, data) VALUES (1, ?) "
-                "ON CONFLICT (id) DO UPDATE SET data = excluded.data",
-                (contract.model_dump_json(),),
+                "UPDATE contract SET data = ? WHERE id = ?", (contract.model_dump_json(), self.id)
             )
 
     # ---- events
 
     def events(self) -> list[Event]:
         rows = self._read(
-            "SELECT id, day, kind, span_start, span_end, note FROM event ORDER BY day, id", ()
+            "SELECT id, day, kind, span_start, span_end, note FROM event "
+            "WHERE contract_id = ? ORDER BY day, id",
+            (self.id,),
         )
         return [
             Event.model_validate(
@@ -148,8 +198,10 @@ class Store:
         self._refuse_if_final(day)
         draft = Event(id=0, day=day, kind=kind, span=span, note=note)  # validates first
         new_id = self._write(
-            "INSERT INTO event (day, kind, span_start, span_end, note) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO event (contract_id, day, kind, span_start, span_end, note) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             (
+                self.id,
                 day.isoformat(),
                 kind.value,
                 None if span is None else span.start,
@@ -161,7 +213,9 @@ class Store:
 
     def delete_event(self, event_id: int) -> date:
         """Deletes the event and returns its day. Raises KeyError if it does not exist."""
-        rows = self._read("SELECT day FROM event WHERE id = ?", (event_id,))
+        rows = self._read(
+            "SELECT day FROM event WHERE id = ? AND contract_id = ?", (event_id, self.id)
+        )
         if not rows:
             raise KeyError(event_id)
         day = date.fromisoformat(str(rows[0][0]))
@@ -174,7 +228,10 @@ class Store:
     # ---- punches (cartellino)
 
     def punches(self) -> list[Punch]:
-        rows = self._read("SELECT id, day, start, stop FROM punch ORDER BY day, start", ())
+        rows = self._read(
+            "SELECT id, day, start, stop FROM punch WHERE contract_id = ? ORDER BY day, start",
+            (self.id,),
+        )
         return [
             Punch.model_validate({"id": id_, "day": day, "start": start, "end": stop})
             for id_, day, start, stop in rows
@@ -187,16 +244,16 @@ class Store:
         with closing(sqlite3.connect(self._path)) as db, db:
             try:
                 new_id = db.execute(
-                    "INSERT INTO punch (day, start, stop) VALUES (?, ?, ?)",
-                    (day.isoformat(), start, end),
+                    "INSERT INTO punch (contract_id, day, start, stop) VALUES (?, ?, ?, ?)",
+                    (self.id, day.isoformat(), start, end),
                 ).lastrowid
             except sqlite3.IntegrityError as e:
-                if "one_open_punch" not in str(e):
+                if "punch.contract_id" not in str(e):  # one_open_punch, per rapporto
                     raise
                 raise ValueError("c'è già una timbratura aperta") from e
             if new_id is None:
                 raise RuntimeError("sqlite non ha restituito un id")
-            _insert_extras(db, new_id, day, extras)
+            _insert_extras(db, self.id, new_id, day, extras)
         return draft.model_copy(update={"id": new_id})
 
     def close_punch(self, punch_id: int, end: int, extras: list[Span]) -> Punch:
@@ -206,7 +263,7 @@ class Store:
         closed = Punch(id=punch.id, day=punch.day, start=punch.start, end=end)  # validates
         with closing(sqlite3.connect(self._path)) as db, db:
             db.execute("UPDATE punch SET stop = ? WHERE id = ?", (end, punch_id))
-            _insert_extras(db, punch_id, punch.day, extras)
+            _insert_extras(db, self.id, punch_id, punch.day, extras)
         return closed
 
     def delete_punch(self, punch_id: int) -> date:
@@ -220,7 +277,11 @@ class Store:
 
     def punch_links(self) -> dict[int, int]:
         """The EXTRA events a punch generated: event id -> punch id."""
-        rows = self._read("SELECT event_id, punch_id FROM punch_event", ())
+        rows = self._read(
+            "SELECT event_id, punch_id FROM punch_event "
+            "JOIN punch ON punch.id = punch_id WHERE contract_id = ?",
+            (self.id,),
+        )
         return {int(str(e)): int(str(p)) for e, p in rows}
 
     def _punch(self, punch_id: int) -> Punch:
@@ -233,15 +294,23 @@ class Store:
 
     def final_payslip(self, year: int, month: int) -> Payslip | None:
         rows = self._read(
-            "SELECT data FROM payslip_final WHERE year = ? AND month = ?", (year, month)
+            "SELECT data FROM payslip_final WHERE contract_id = ? AND year = ? AND month = ?",
+            (self.id, year, month),
         )
         return Payslip.model_validate_json(str(rows[0][0])) if rows else None
 
     def finalize(self, payslip: Payslip) -> None:
         self._refuse_if_final(date(payslip.year, payslip.month, 1))
         self._write(
-            "INSERT INTO payslip_final (year, month, data, finalized_at) VALUES (?, ?, ?, ?)",
-            (payslip.year, payslip.month, payslip.model_dump_json(), datetime.now(UTC).isoformat()),
+            "INSERT INTO payslip_final (contract_id, year, month, data, finalized_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                self.id,
+                payslip.year,
+                payslip.month,
+                payslip.model_dump_json(),
+                datetime.now(UTC).isoformat(),
+            ),
         )
 
     def _refuse_if_final(self, day: date) -> None:
@@ -252,35 +321,47 @@ class Store:
 
     def employer_car(self) -> set[tuple[date, bool]]:
         """(day, morning) of the turni done with the employer's car."""
-        rows = self._read("SELECT day, morning FROM employer_car", ())
+        rows = self._read("SELECT day, morning FROM employer_car WHERE contract_id = ?", (self.id,))
         return {(date.fromisoformat(str(day)), bool(morning)) for day, morning in rows}
 
     def set_employer_car(self, day: date, morning: bool, employer: bool) -> None:
         self._refuse_if_final(day)
-        key = (day.isoformat(), int(morning))
+        key = (self.id, day.isoformat(), int(morning))
         with closing(sqlite3.connect(self._path)) as db, db:
             if employer:
-                db.execute("INSERT OR IGNORE INTO employer_car (day, morning) VALUES (?, ?)", key)
+                db.execute(
+                    "INSERT OR IGNORE INTO employer_car (contract_id, day, morning) "
+                    "VALUES (?, ?, ?)",
+                    key,
+                )
             else:
-                db.execute("DELETE FROM employer_car WHERE day = ? AND morning = ?", key)
+                db.execute(
+                    "DELETE FROM employer_car WHERE contract_id = ? AND day = ? AND morning = ?",
+                    key,
+                )
 
     # ---- INPS payments
 
     def payments(self) -> list[Payment]:
-        rows = self._read("SELECT data FROM payment ORDER BY year, quarter", ())
+        rows = self._read(
+            "SELECT data FROM payment WHERE contract_id = ? ORDER BY year, quarter", (self.id,)
+        )
         return [Payment.model_validate_json(str(data)) for (data,) in rows]
 
     def record_payment(self, payment: Payment) -> None:
         self._write(
-            "INSERT INTO payment (year, quarter, data) VALUES (?, ?, ?) "
-            "ON CONFLICT (year, quarter) DO UPDATE SET data = excluded.data",
-            (payment.year, payment.quarter, payment.model_dump_json()),
+            "INSERT INTO payment (contract_id, year, quarter, data) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT (contract_id, year, quarter) DO UPDATE SET data = excluded.data",
+            (self.id, payment.year, payment.quarter, payment.model_dump_json()),
         )
 
     # ---- TFR advances
 
     def advances(self) -> list[TfrAdvance]:
-        rows = self._read("SELECT id, day, amount FROM tfr_advance ORDER BY day, id", ())
+        rows = self._read(
+            "SELECT id, day, amount FROM tfr_advance WHERE contract_id = ? ORDER BY day, id",
+            (self.id,),
+        )
         return [
             TfrAdvance.model_validate({"id": id_, "day": day, "amount": amount})
             for id_, day, amount in rows
@@ -288,6 +369,69 @@ class Store:
 
     def add_advance(self, day: date, amount: Decimal) -> TfrAdvance:
         new_id = self._write(
-            "INSERT INTO tfr_advance (day, amount) VALUES (?, ?)", (day.isoformat(), str(amount))
+            "INSERT INTO tfr_advance (contract_id, day, amount) VALUES (?, ?, ?)",
+            (self.id, day.isoformat(), str(amount)),
         )
         return TfrAdvance(id=new_id, day=day, amount=amount)
+
+
+class Store:
+    """The employer's rapporti, and what spans them. One short-lived connection per call."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        with closing(sqlite3.connect(path, isolation_level=None)) as db:
+            _upgrade(db)
+
+    def _read(self, sql: str, params: tuple[object, ...]) -> list[Row]:
+        with closing(sqlite3.connect(self._path)) as db:
+            return db.execute(sql, params).fetchall()
+
+    def _update(self, sql: str, params: tuple[object, ...]) -> None:
+        with closing(sqlite3.connect(self._path)) as db, db:
+            if db.execute(sql, params).rowcount != 1:
+                raise KeyError(params[-1])
+
+    def rapporti(self) -> list[Rapporto]:
+        rows = self._read("SELECT id, data, ha_entity, worker_hash FROM contract ORDER BY id", ())
+        return [
+            Rapporto(
+                id=int(str(id_)),
+                contract=Contract.model_validate_json(str(data)),
+                ha_entity=str(entity),
+                worker_access=worker_hash is not None,
+            )
+            for id_, data, entity, worker_hash in rows
+        ]
+
+    def add_rapporto(self, contract: Contract) -> int:
+        with closing(sqlite3.connect(self._path)) as db, db:
+            new_id = db.execute(
+                "INSERT INTO contract (data, ha_entity, worker_hash) VALUES (?, '', NULL)",
+                (contract.model_dump_json(),),
+            ).lastrowid
+        if new_id is None:
+            raise RuntimeError("sqlite non ha restituito un id")
+        return new_id
+
+    def rapporto(self, contract_id: int) -> RapportoStore:
+        """Raises KeyError if there is no such rapporto."""
+        if not self._read("SELECT 1 FROM contract WHERE id = ?", (contract_id,)):
+            raise KeyError(contract_id)
+        return RapportoStore(self._path, contract_id)
+
+    def set_ha_entity(self, contract_id: int, entity: str) -> None:
+        self._update("UPDATE contract SET ha_entity = ? WHERE id = ?", (entity, contract_id))
+
+    def set_worker_hash(self, contract_id: int, worker_hash: str | None) -> None:
+        """The worker's password hash (computed by the caller); None closes her access."""
+        self._update("UPDATE contract SET worker_hash = ? WHERE id = ?", (worker_hash, contract_id))
+
+    def worker_hashes(self) -> dict[int, str]:
+        rows = self._read("SELECT id, worker_hash FROM contract WHERE worker_hash IS NOT NULL", ())
+        return {int(str(id_)): str(h) for id_, h in rows}
+
+    def all_payments(self) -> list[Payment]:
+        """Every rapporto's INPS payments: the employer's deduction sums them."""
+        rows = self._read("SELECT data FROM payment ORDER BY year, quarter, contract_id", ())
+        return [Payment.model_validate_json(str(data)) for (data,) in rows]

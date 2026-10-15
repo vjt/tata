@@ -2,8 +2,9 @@
 
 ## What this is
 
-Self-hosted helper for an Italian household employer with ONE domestic worker (CCNL lavoro
-domestico, paid by the hour, non convivente). Records the exceptions to a standard weekly
+Self-hosted helper for an Italian household employer with one or more domestic workers (CCNL
+lavoro domestico, paid by the hour, non conviventi): one **rapporto** per worker and hire, open
+or closed, possibly overlapping. Records the exceptions to a standard weekly
 schedule, produces the monthly prospetto paga (PDF), quarterly INPS + Cassa Colf contributions,
 tredicesima, TFR, ferie/permessi balances, the yearly attestazione for the worker's 730 and the
 employer's deductible-contributions YAML.
@@ -24,9 +25,9 @@ src/tata/
   timbratura.py punch button: propose action, overruns (EXTRA), shortfalls, punch checks
   presenza.py   wifi presence (eve via Home Assistant history) -> proposed punches
   homeassistant.py  HA REST client: a device tracker's history (the only network I/O)
-  store.py      SQLite persistence (stdlib sqlite3, no ORM)
+  store.py      SQLite persistence (stdlib sqlite3, no ORM): Store (rapporti) -> RapportoStore
   pdf.py        HTML -> PDF via WeasyPrint
-  web.py        FastAPI app factory, server-rendered Jinja2, HTTP Basic (one password)
+  web.py        FastAPI app factory, server-rendered Jinja2, HTTP Basic, routes under /r/{id}/
   static/       PWA manifest + icons (public, outside HTTP Basic), no service worker
 rates/<year>.yaml  one file per year, every value with its source in a comment
 ```
@@ -81,7 +82,13 @@ Calc modules never touch the DB; the store never computes.
 - **INPS fascia** from retribuzione oraria effettiva = paga oraria × 13/12 (13ma rateo; no vitto/
   alloggio for non conviventi). Contributions on ore retribuite (worked + festività + ferie +
   permessi + scheduled hours of paid sick days). Out of scope by design: tempo determinato
-  (contributo addizionale), conviventi (vitto/alloggio), more than one worker.
+  (contributo addizionale), conviventi (vitto/alloggio).
+- **Rapporti** (spec 2026-10-15-rapporti): one employer, many rapporti. Everything is per
+  rapporto (contract, events, punches, finals, INPS payments, TFR advances) except the
+  deduction (art. 10 c.2 TUIR cap per employer: one export summing all). Never deleted: a
+  closed rapporto stays readable. Worker access: a scrypt-hashed password per rapporto, which
+  identifies it (must be unique). Schema version in `PRAGMA user_version`, migrations in
+  `store._upgrade`, one transaction.
 
 ## Engineering principles (inherited from grappa / gastone / decaf, owned here)
 
