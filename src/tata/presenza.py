@@ -18,7 +18,8 @@ RESTART_GRACE = timedelta(minutes=5)  # not_home after unknown, home again withi
 # at midnight), afternoon from noon on.
 NOON = 12 * 60
 MORNING_FROM = 7 * 60 + 30  # morning start: the first arrival in MORNING_FROM..MORNING_TO
-MORNING_TO = 8 * 60 + 15  # ...and a departure by then is the school run on foot: + WALK
+MORNING_TO = 8 * 60 + 15
+TAIL_BY = 8 * 60 + 30  # a morning departure by then is the school run on foot: + WALK
 WALK = 30  # minutes still worked after leaving the house, taking the children to school
 AFTERNOON_START = 15 * 60 + 45  # she picks the children up; an earlier arrival counts from itself
 
@@ -73,7 +74,7 @@ def presence_days(history: History, first: date, last: date) -> list[PresenceDay
     """One PresenceDay per calendar day first..last, with the punches the shifts propose.
 
     Morning: from the first arrival in 07:30-08:15 to the end of the last morning stay, + 30 min
-    if that is by 08:15. Afternoon: from the first arrival, or 15:45 if later, to the end of
+    if that is by 08:30. Afternoon: from the first arrival, or 15:45 if later, to the end of
     the last afternoon stay. What lies in between is ignored; a shift whose end is unknown or
     past noon proposes nothing, and the day lists its anomalies.
     """
@@ -145,7 +146,7 @@ def _shifts(sessions: list[Session]) -> tuple[list[Span], list[Anomaly]]:
     if any(s.departure is not None for s in morning if s not in shift):
         anomalies.append(Anomaly.STRAY)
     if shift and (end := _end(shift[-1], NOON, anomalies)) is not None:
-        proposals.append(Span(start=start, end=end + WALK if end <= MORNING_TO else end))
+        proposals.append(Span(start=start, end=end + WALK if end <= TAIL_BY else end))
     if afternoon and (end := _end(afternoon[-1], MINUTES_PER_DAY, anomalies)) is not None:
         start = min(afternoon[0].arrival or NOON, AFTERNOON_START)
         if end > start:  # in and out within a minute of 15:45

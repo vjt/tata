@@ -78,7 +78,7 @@ eve/openwrt-presence, che segna `not_home` 120 secondi dopo l'ultimo
 aggancio) e propone le timbrature per turni:
 
 - **mattina**: dal primo arrivo tra le 7:30 e le 8:15 all'ultima uscita prima di mezzogiorno,
-  + 30 minuti se quell'uscita è entro le 8:15 (il tragitto per portare i bambini a scuola);
+  + 30 minuti se quell'uscita è entro le 8:30 (il tragitto per portare i bambini a scuola);
   un rientro dopo la scuola è assorbito e fa cadere i 30 minuti;
 - **pomeriggio**: dalle 15:45 (uscita da scuola), o dall'arrivo se è prima, all'ultima uscita;
   gli arrivi dopo le 15:45 non spostano nulla.

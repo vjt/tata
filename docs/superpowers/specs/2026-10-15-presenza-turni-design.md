@@ -20,12 +20,12 @@ A shift is a window of the day. Within it:
 
 | shift     | start window  | default start | end                  | tail                        |
 |-----------|---------------|---------------|----------------------|-----------------------------|
-| morning   | 07:30–08:15   | none          | last departure < 12:00 | +30 min if departure ≤ 08:15 |
+| morning   | 07:30–08:15   | none          | last departure < 12:00 | +30 min if departure ≤ 08:30 |
 | afternoon | before 15:45  | 15:45         | last departure       | none                        |
 
-Morning: she arrives, then leaves for the school run. Leaving by 08:15 means she walks the
+Morning: she arrives, then leaves for the school run. Leaving by 08:30 means she walks the
 children to school, so +30 min. If she comes back (e.g. 08:45–09:30, she used the employer's
-car) the last departure is later than 08:15 and the tail drops out by itself: no re-connect
+car) the last departure is later than 08:30 and the tail drops out by itself: no re-connect
 rule.
 
 Afternoon: she may or may not pass by the house before picking the children up. An arrival

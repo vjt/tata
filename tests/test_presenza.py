@@ -25,24 +25,30 @@ def one_day(h: History) -> PresenceDay:
 HOME, AWAY, UNKNOWN = Seen.HOME, Seen.AWAY, Seen.UNKNOWN
 
 
-def test_morning_ends_thirty_minutes_after_she_leaves_by_eight_fifteen() -> None:
+def test_morning_ends_thirty_minutes_after_she_leaves_by_half_past_eight() -> None:
     # Joins the wifi 07:52:40, not_home published 08:14:30 = last seen 08:12:30 (eve's 120 s
-    # departure timeout). Left by 08:15: the school run on foot, 08:12 + 30 = 08:42.
+    # departure timeout). Left by 08:30: the school run on foot, 08:12 + 30 = 08:42.
     d = one_day(history(AWAY, ("07:52:40", HOME), ("08:14:30", AWAY)))
     assert d.sessions == [Session(arrival=7 * 60 + 52, departure=8 * 60 + 12, lost=False)]
     assert d.proposals == [span("07:52-08:42")]
     assert d.anomalies == []
 
 
-def test_morning_departure_after_eight_fifteen_has_no_tail() -> None:
-    # not_home 08:18:00 = left 08:16, past 08:15: no + 30.
-    d = one_day(history(AWAY, ("07:55:00", HOME), ("08:18:00", AWAY)))
-    assert d.proposals == [span("07:55-08:16")]
+def test_morning_departure_at_half_past_eight_still_has_the_tail() -> None:
+    # not_home 08:32:00 = left 08:30, the last minute that counts: 08:30 + 30 = 09:00.
+    d = one_day(history(AWAY, ("07:55:00", HOME), ("08:32:00", AWAY)))
+    assert d.proposals == [span("07:55-09:00")]
+
+
+def test_morning_departure_after_half_past_eight_has_no_tail() -> None:
+    # not_home 08:33:00 = left 08:31, past 08:30: no + 30.
+    d = one_day(history(AWAY, ("07:55:00", HOME), ("08:33:00", AWAY)))
+    assert d.proposals == [span("07:55-08:31")]
 
 
 def test_morning_return_is_absorbed_and_drops_the_tail() -> None:
     # Leaves 08:10, back 08:50 (took the employer's car), leaves 09:28: one punch to the last
-    # departure, past 08:15 so no + 30; the 08:10-08:50 gap is ignored.
+    # departure, past 08:30 so no + 30; the 08:10-08:50 gap is ignored.
     d = one_day(
         history(
             AWAY,

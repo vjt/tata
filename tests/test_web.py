@@ -483,7 +483,7 @@ def test_presence_page_proposes_and_records_on_confirmation(tmp_path: Path) -> N
     ha = FakeHomeAssistant(A_DAY)
     c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), ha)
     page = c.get("/presenza/2026/10").text
-    # Morning: 07:55 to 08:12 + 30 = 08:42 (left by 08:15). Afternoon: 15:45 to 18:03.
+    # Morning: 07:55 to 08:12 + 30 = 08:42 (left by 08:30). Afternoon: 15:45 to 18:03.
     assert "07:55-08:42" in page
     assert "15:45-18:03" in page
     assert ha.asked == [(rome(2026, 10, 1, 0, 0), rome(2026, 10, 15, 19, 0))]
