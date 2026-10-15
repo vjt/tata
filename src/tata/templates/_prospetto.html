@@ -21,6 +21,10 @@
     <tr><td colspan="3">Contributi INPS a carico lavoratore ({{ slip.ore_retribuite | num }} h × {{ slip.contributo.lavoratore | num }})</td><td>− {{ slip.trattenuta_inps | eur }}</td></tr>
     <tr><td colspan="3">Cassa Colf a carico lavoratore ({{ slip.ore_retribuite | num }} h × {{ slip.cassa_colf.lavoratore | num }})</td><td>− {{ slip.trattenuta_cassa_colf | eur }}</td></tr>
     <tr class="total net"><td colspan="3">Netto</td><td>{{ slip.netto | eur }}</td></tr>
+    {% if slip.rimborso %}
+    <tr><td colspan="3">{{ slip.rimborso.voce }}: {{ slip.rimborso.quantita | int }} {{ slip.rimborso.unita }} ({{ slip.rimborso.tariffa | eur }} a turno)</td><td>+ {{ slip.rimborso.importo | eur }}</td></tr>
+    <tr class="total net"><td colspan="3">Da pagare</td><td>{{ slip.da_pagare | eur }}</td></tr>
+    {% endif %}
   </tfoot>
 </table>
 

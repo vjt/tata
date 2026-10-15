@@ -12,6 +12,7 @@ from tata.timbratura import (
     overruns,
     propose,
     shortfalls,
+    turni,
     unpunched,
 )
 from tests.helpers import event, span, standard_contract
@@ -179,3 +180,18 @@ def test_no_punch_no_pay() -> None:
     # 13-30/10 x 2 = 28; nothing before the hire.
     assert len(unpunched(WORKER, [], [], 2026, 10)) == 28
     assert unpunched(WORKER, [], [], 2026, 9) == []
+
+
+def test_a_turno_is_a_half_day_with_a_closed_punch() -> None:
+    wed = date(2026, 10, 14)
+    punches = [
+        Punch(id=1, day=TUE, start=480, end=525),  # morning
+        Punch(id=2, day=TUE, start=945, end=990),  # afternoon...
+        Punch(id=3, day=TUE, start=1000, end=1080),  # ...the same afternoon: no second trip
+        Punch(id=4, day=wed, start=480, end=None),  # open: not yet a trip
+        Punch(id=5, day=date(2026, 11, 2), start=480, end=525),  # another month
+    ]
+    assert [(t.day, t.morning, t.punch_id) for t in turni(punches, 2026, 10)] == [
+        (TUE, True, 1),
+        (TUE, False, 2),
+    ]

@@ -2,6 +2,7 @@ import base64
 import sqlite3
 from contextlib import closing
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from urllib.error import URLError
 from zoneinfo import ZoneInfo
@@ -11,6 +12,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from tata.festivita import festivita
+from tata.models import Mileage
 from tata.presenza import Change, History, Seen
 from tata.store import Store
 from tata.web import Settings, create_app
@@ -44,11 +46,17 @@ def basic(password: str) -> dict[str, str]:
 
 
 WORKER = "pass-lavoratrice"
+# Invented route: 12 km a turno (andata e ritorno), ACI 0,4463 €/km.
+MILEAGE = Mileage(km_turno=Decimal(12), euro_km=Decimal("0.4463"))
 
 
 def settings(tmp_path: Path) -> Settings:
     return Settings(
-        data_dir=tmp_path, rates_dir=RATES_DIR, password=PASSWORD, worker_password=WORKER
+        data_dir=tmp_path,
+        rates_dir=RATES_DIR,
+        password=PASSWORD,
+        worker_password=WORKER,
+        mileage=MILEAGE,
     )
 
 
@@ -662,10 +670,40 @@ def test_worker_reads_the_month_and_punches_but_nothing_else(tmp_path: Path) -> 
 
 def test_worker_password_must_differ_and_be_set_to_open(tmp_path: Path) -> None:
     same = Settings(
-        data_dir=tmp_path, rates_dir=RATES_DIR, password=PASSWORD, worker_password=PASSWORD
+        data_dir=tmp_path,
+        rates_dir=RATES_DIR,
+        password=PASSWORD,
+        worker_password=PASSWORD,
+        mileage=MILEAGE,
     )
     with pytest.raises(ValueError, match="diversa"):
         create_app(same, end_of_2026, None)
-    off = Settings(data_dir=tmp_path, rates_dir=RATES_DIR, password=PASSWORD, worker_password="")
+    off = Settings(
+        data_dir=tmp_path,
+        rates_dir=RATES_DIR,
+        password=PASSWORD,
+        worker_password="",
+        mileage=MILEAGE,
+    )
     anyone = TestClient(create_app(off, end_of_2026, None), headers=basic(""))
     assert anyone.get("/mese/2026/10").status_code == 401
+
+
+def test_each_turno_carries_its_rimborso(tmp_path: Path) -> None:
+    # Tue 13/10: morning, then two afternoon punches (one turno: one trip, not two).
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 19, 0))
+    for inizio, fine in (("08:00", "08:45"), ("15:45", "16:30"), ("16:40", "18:00")):
+        c.post("/timbrature", data={"giorno": "2026-10-13", "inizio": inizio, "fine": fine})
+    page = c.get("/mese/2026/10").text
+    # 12 km x 0,4463 = 5,3556 -> 5,36 a turno; 2 turni = 24 km, 10,72 EUR.
+    assert page.count("trasferta 12,00 km, 5,36 €") == 2
+    assert "Trasferte del mese: 2 turni, 24,00 km," in page and "rimborso 10,72 €" in page
+    # Outside the lordo: netto + rimborso = da pagare.
+    slip = page.split("Lavorato")[1]
+    netto = slip.split('<td colspan="3">Netto</td><td>')[1].split(" €")[0]
+    da_pagare = slip.split('<td colspan="3">Da pagare</td><td>')[1].split(" €")[0]
+    assert italian(da_pagare) - italian(netto) == Decimal("10.72")
+
+
+def italian(amount: str) -> Decimal:
+    return Decimal(amount.replace(".", "").replace(",", "."))

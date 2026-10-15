@@ -35,8 +35,18 @@ from tata.festivita import festivita
 from tata.homeassistant import fetch_history
 from tata.hours import month_work, range_days
 from tata.inps import quarter_contributions, quarter_months
-from tata.models import Contract, Event, EventKind, Frozen, Livello, Payment, Punch, Span
-from tata.payslip import Payslip, compute_payslip
+from tata.models import (
+    Contract,
+    Event,
+    EventKind,
+    Frozen,
+    Livello,
+    Mileage,
+    Payment,
+    Punch,
+    Span,
+)
+from tata.payslip import Payslip, compute_payslip, rimborso_line
 from tata.pdf import render_pdf
 from tata.presenza import History, presence_days
 from tata.rates import RatesBook
@@ -48,6 +58,7 @@ from tata.timbratura import (
     overruns,
     propose,
     shortfalls,
+    turni,
     unpunched,
 )
 
@@ -63,11 +74,13 @@ class Settings(Frozen):
     rates_dir: Path
     password: str  # the employer: everything
     worker_password: str  # the worker: reads the month, punches; empty = no worker access
+    mileage: Mileage | None  # rimborso trasferte per turno; None = no rimborso
 
 
 Clock = Callable[[], datetime]
 PresenceSource = Callable[[datetime, datetime], History]  # wifi presence from start to end
 HA_VARS = ("TATA_HA_URL", "TATA_HA_TOKEN", "TATA_HA_ENTITY")
+MILEAGE_VARS = ("TATA_RIMBORSO_KM", "TATA_RIMBORSO_EURO_KM")
 RETURN_TO = re.compile(r"/presenza/\d{4}/\d{1,2}")
 WORKER_ROUTES = {  # all the worker may do: read the month and its payslip, punch, by hand too
     "GET": re.compile(r"/|/timbra|/mese/\d{4}/\d{1,2}(/prospetto\.pdf)?"),
@@ -83,17 +96,21 @@ def app_from_env() -> FastAPI:
     """The only place that reads the environment (uvicorn --factory entry point).
 
     Wifi presence is optional: all three TATA_HA_* variables, or none. So is the worker's
-    access, TATA_WORKER_PASSWORD.
+    access, TATA_WORKER_PASSWORD, and the rimborso trasferte: both TATA_RIMBORSO_*, or none.
     """
     ha = [os.environ.get(name, "") for name in HA_VARS]
     if any(ha) and not all(ha):
         raise ValueError(f"presenza wifi: servono tutte o nessuna tra {', '.join(HA_VARS)}")
+    km, euro_km = (os.environ.get(name, "") for name in MILEAGE_VARS)
+    if bool(km) != bool(euro_km):
+        raise ValueError(f"rimborso trasferte: servono entrambe o nessuna tra {MILEAGE_VARS}")
     return create_app(
         Settings(
             data_dir=Path(os.environ["TATA_DATA_DIR"]),
             rates_dir=Path(os.environ["TATA_RATES_DIR"]),
             password=os.environ["TATA_PASSWORD"],
             worker_password=os.environ.get("TATA_WORKER_PASSWORD", ""),
+            mileage=Mileage(km_turno=Decimal(km), euro_km=Decimal(euro_km)) if km else None,
         ),
         rome_now,
         _home_assistant(*ha) if all(ha) else None,
@@ -275,7 +292,11 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             if final is not None:
                 return final
             events = paid_events(contract, year, month)
-            return compute_payslip(contract, events, year, month, book.get(year))
+            rimborso = None
+            if settings.mileage is not None:
+                trips = len(turni(store.punches(), year, month))
+                rimborso = rimborso_line(settings.mileage, trips)
+            return compute_payslip(contract, events, year, month, book.get(year), rimborso)
 
         return get
 
@@ -344,7 +365,7 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         rates = book.get(year)
         slip = source(contract)(year, month)
         final = store.final_payslip(year, month) is not None
-        planned = None if final else compute_payslip(contract, events, year, month, rates)
+        planned = None if final else compute_payslip(contract, events, year, month, rates, None)
         paid = paid_events(contract, year, month)
         work = {d.day: d for d in month_work(contract, paid, year, month, rates)}
         weeks = calendar.Calendar().monthdatescalendar(year, month)
@@ -366,6 +387,8 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "kinds": list(EventKind),
                 "slip": slip,
                 "planned": planned,
+                "trips": {t.punch_id for t in turni(store.punches(), year, month)},
+                "mileage": settings.mileage,
                 "punches": [
                     p for p in store.punches() if (p.day.year, p.day.month) == (year, month)
                 ],

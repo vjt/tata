@@ -11,13 +11,13 @@ from decimal import Decimal
 
 import pytest
 
-from tata.models import Contract, Event, EventKind
-from tata.payslip import Payslip, compute_payslip
+from tata.models import Contract, Event, EventKind, Mileage
+from tata.payslip import Payslip, compute_payslip, rimborso_line
 from tests.helpers import STANDARD, contract, event, rates_2026, standard_contract
 
 
 def payslip(worker: Contract, events_: list[Event], year: int, month: int) -> Payslip:
-    return compute_payslip(worker, events_, year, month, rates_2026())
+    return compute_payslip(worker, events_, year, month, rates_2026(), None)
 
 
 def line(slip: Payslip, voce: str) -> Decimal:
@@ -263,6 +263,32 @@ def test_mora_pays_exactly_as_the_schedule() -> None:
     worker = standard_contract(date(2026, 10, 12))
     mora = event(date(2026, 10, 13), EventKind.MORA, "15:45-18:00")
     rates = rates_2026()
-    assert compute_payslip(worker, [mora], 2026, 10, rates) == compute_payslip(
-        worker, [], 2026, 10, rates
+    assert compute_payslip(worker, [mora], 2026, 10, rates, None) == compute_payslip(
+        worker, [], 2026, 10, rates, None
     )
+
+
+def test_rimborso_is_paid_on_top_of_the_netto_and_nothing_else() -> None:
+    worker = standard_contract(date(2026, 10, 12))
+    rimborso = rimborso_line(Mileage(km_turno=Decimal(12), euro_km=Decimal("0.4463")), 3)
+    assert rimborso is not None
+    # 12 km x 0,4463 = 5,3556 -> 5,36 a turno ; x 3 = 16,08
+    assert rimborso.tariffa == Decimal("5.36")
+    assert rimborso.importo == Decimal("16.08")
+    plain = compute_payslip(worker, [], 2026, 10, rates_2026(), None)
+    slip = compute_payslip(worker, [], 2026, 10, rates_2026(), rimborso)
+    # Not income (art. 51 c.5 TUIR, trasferta fuori comune): lordo, INPS, TFR, netto unchanged.
+    assert (slip.lordo, slip.ore_retribuite, slip.imponibile_tfr, slip.netto) == (
+        plain.lordo,
+        plain.ore_retribuite,
+        plain.imponibile_tfr,
+        plain.netto,
+    )
+    assert slip.da_pagare == plain.netto + Decimal("16.08")
+    assert plain.da_pagare == plain.netto
+
+
+def test_no_turni_no_rimborso() -> None:
+    assert rimborso_line(Mileage(km_turno=Decimal(12), euro_km=Decimal("0.4463")), 0) is None
+    with pytest.raises(ValueError, match="positivi"):
+        Mileage(km_turno=Decimal(0), euro_km=Decimal("0.4463"))

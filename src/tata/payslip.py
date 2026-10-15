@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from tata.hours import month_work
-from tata.models import Bucket, Contract, Event, EventKind, Frozen, Livello, euro
+from tata.models import Bucket, Contract, Event, EventKind, Frozen, Livello, Mileage, euro
 from tata.rates import Contributo, Rates
 
 WEEKS_PER_MONTH = Decimal(52) / 12
@@ -53,7 +53,9 @@ class Payslip(Frozen):
     cassa_colf: Contributo  # per hour
     trattenuta_inps: Decimal
     trattenuta_cassa_colf: Decimal
-    netto: Decimal
+    netto: Decimal  # lordo - trattenute: the retribuzione, what the attestazione sums
+    rimborso: Line | None  # trasferte, not income (art. 51 c.5 TUIR): outside the lordo
+    da_pagare: Decimal  # netto + rimborso
     tredicesima_maturata: Decimal  # this calendar year, up to this month
     ferie_maturate: Decimal  # days since hire, up to this month
     ferie_godute: Decimal
@@ -66,9 +68,17 @@ class Payslip(Frozen):
 
 
 def compute_payslip(
-    contract: Contract, events: list[Event], year: int, month: int, rates: Rates
+    contract: Contract,
+    events: list[Event],
+    year: int,
+    month: int,
+    rates: Rates,
+    rimborso: Line | None,
 ) -> Payslip:
-    """The payslip of one month. Raises ValueError on pay below minimum or inconsistent events."""
+    """The payslip of one month. Raises ValueError on pay below minimum or inconsistent events.
+
+    `rimborso` (rimborso_line) is paid on top of the netto, outside every base.
+    """
     paga = pay_breakdown(contract, year, month, rates)
     p = paga.oraria
     weekly = contract.weekly_minutes()
@@ -144,6 +154,11 @@ def compute_payslip(
         trattenuta_inps=trattenuta_inps,
         trattenuta_cassa_colf=trattenuta_cassa,
         netto=lordo - trattenuta_inps - trattenuta_cassa,
+        rimborso=rimborso,
+        da_pagare=lordo
+        - trattenuta_inps
+        - trattenuta_cassa
+        + (rimborso.importo if rimborso is not None else 0),
         tredicesima_maturata=tredicesima,
         ferie_maturate=euro(ferie_maturate),
         ferie_godute=ferie_godute,
@@ -234,6 +249,20 @@ def _employed_in(contract: Contract, year: int, month: int) -> bool:
     last = date(year + month // 12, month % 12 + 1, 1) - timedelta(days=1)
     ends = contract.cessazione
     return contract.assunzione <= last and (ends is None or ends >= first)
+
+
+def rimborso_line(mileage: Mileage, turni: int) -> Line | None:
+    """Rimborso trasferte for `turni` trips: km x €/km per turno, rounded once (spec)."""
+    if not turni:
+        return None
+    per_turno = euro(mileage.km_turno * mileage.euro_km)
+    return Line(
+        voce="Rimborso trasferte (non imponibile)",
+        quantita=Decimal(turni),
+        unita="turni",
+        tariffa=per_turno,
+        importo=per_turno * turni,
+    )
 
 
 def pay_breakdown(contract: Contract, year: int, month: int, rates: Rates) -> Paga:

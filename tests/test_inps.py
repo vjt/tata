@@ -17,7 +17,7 @@ def test_due_dates_are_the_tenth_after_each_quarter() -> None:
 
 def test_fourth_quarter_2026_hired_12_october() -> None:
     worker = standard_contract(date(2026, 10, 12))
-    slips = [compute_payslip(worker, [], 2026, m, rates_2026()) for m in (10, 11, 12)]
+    slips = [compute_payslip(worker, [], 2026, m, rates_2026(), None) for m in (10, 11, 12)]
     q = quarter_contributions(slips, 2026, 4)
     # ore retribuite: Oct 45 + Nov 65,5 (21 weekdays x 3 + 1 Nov festività 2,5) + Dec 70,5 = 181
     assert q.ore == Decimal("181.00")
@@ -36,6 +36,6 @@ def test_fourth_quarter_2026_hired_12_october() -> None:
 
 def test_quarter_rejects_payslips_from_other_months() -> None:
     worker = standard_contract(date(2026, 1, 1))
-    march = compute_payslip(worker, [], 2026, 3, rates_2026())
+    march = compute_payslip(worker, [], 2026, 3, rates_2026(), None)
     with pytest.raises(ValueError, match="trimestre"):
         quarter_contributions([march], 2026, 2)

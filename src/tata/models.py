@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 CENT = Decimal("0.01")
 MINUTES_PER_DAY = 24 * 60
+NOON = 12 * 60  # morning before, afternoon from: wifi shifts and rimborso turni
 
 
 def euro(amount: Decimal) -> Decimal:
@@ -183,3 +184,16 @@ class Punch(Frozen):
         if self.end is None:
             raise ValueError(f"timbratura del {self.day} ancora aperta")
         return Span(start=self.start, end=self.end)
+
+
+class Mileage(Frozen):
+    """Rimborso trasferte: km per turno (andata e ritorno) at the ACI €/km of her car."""
+
+    km_turno: Decimal
+    euro_km: Decimal
+
+    @model_validator(mode="after")
+    def _check(self) -> "Mileage":
+        if self.km_turno <= 0 or self.euro_km <= 0:
+            raise ValueError("rimborso trasferte: km e €/km devono essere positivi")
+        return self

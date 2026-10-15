@@ -11,6 +11,8 @@ services:
     environment:
       - TATA_PASSWORD
       - TATA_WORKER_PASSWORD
+      - TATA_RIMBORSO_KM
+      - TATA_RIMBORSO_EURO_KM
       - TATA_HA_URL
       - TATA_HA_TOKEN
       - TATA_HA_ENTITY

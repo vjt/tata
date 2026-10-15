@@ -102,13 +102,18 @@
   <ul class="events">
   {% for p in punches %}
     <li{% if p.end is not none and p.end - p.start > 480 %} class="long"{% endif %}>
-      <span>{{ p.day | dmy }} · {% if p.end is none %}dalle {{ p.start | ore }} (aperta){% else %}{{ p.span() }}{% endif %}</span>
+      <span>{{ p.day | dmy }} · {% if p.end is none %}dalle {{ p.start | ore }} (aperta){% else %}{{ p.span() }}{% endif %}
+        {% if slip.rimborso and p.id in trips %} · trasferta {% if mileage %}{{ mileage.km_turno | num }} km, {% endif %}{{ slip.rimborso.tariffa | eur }}{% endif %}</span>
       {% if employer and not final %}
       <form method="post" action="/timbrature/{{ p.id }}/elimina"><button class="link">elimina</button></form>
       {% endif %}
     </li>
   {% endfor %}
   </ul>
+  {% if slip.rimborso %}
+  <p>Trasferte del mese: {{ slip.rimborso.quantita | int }} turni{% if mileage %}, {{ (slip.rimborso.quantita * mileage.km_turno) | num }} km{% endif %},
+    rimborso {{ slip.rimborso.importo | eur }} (non imponibile).</p>
+  {% endif %}
   {% endif %}
   {% if not final %}
   <form method="post" action="/timbrature" class="form inline">

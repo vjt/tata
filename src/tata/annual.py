@@ -27,10 +27,10 @@ def employed_months(contract: Contract, year: int, upto_month: int) -> list[int]
 
 
 def computed_source(contract: Contract, events: list[Event], book: RatesBook) -> PayslipSource:
-    """Payslips computed from scratch, no snapshots."""
+    """Payslips computed from scratch, no snapshots, no rimborso."""
 
     def source(year: int, month: int) -> Payslip:
-        return compute_payslip(contract, events, year, month, book.get(year))
+        return compute_payslip(contract, events, year, month, book.get(year), None)
 
     return source
 

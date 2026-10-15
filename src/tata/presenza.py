@@ -8,7 +8,7 @@ from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
-from tata.models import MINUTES_PER_DAY, Frozen, Span
+from tata.models import MINUTES_PER_DAY, NOON, Frozen, Span
 
 ROME = ZoneInfo("Europe/Rome")
 DEPARTURE = timedelta(seconds=120)  # eve's departure_timeout: not_home comes this long after
@@ -16,7 +16,6 @@ DEPARTURE = timedelta(seconds=120)  # eve's departure_timeout: not_home comes th
 RESTART_GRACE = timedelta(minutes=5)  # not_home after unknown, home again within this: restart
 # Two shifts. A stay belongs to the shift of its arrival: morning before noon (or already home
 # at midnight), afternoon from noon on.
-NOON = 12 * 60
 MORNING_FROM = 7 * 60 + 30  # morning start: the first arrival in MORNING_FROM..MORNING_TO
 MORNING_TO = 8 * 60 + 15
 TAIL_BY = 8 * 60 + 30  # a morning departure by then is the school run on foot: + WALK

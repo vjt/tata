@@ -41,7 +41,7 @@ def test_finalized_month_is_immutable(tmp_path: Path) -> None:
     worker = standard_contract(date(2026, 10, 12))
     s.save_contract(worker, {})
     ev = s.add_event(date(2026, 10, 13), EventKind.ASSENZA, None, "")
-    slip = compute_payslip(worker, s.events(), 2026, 10, rates_2026())
+    slip = compute_payslip(worker, s.events(), 2026, 10, rates_2026(), None)
     s.finalize(slip)
     assert s.final_payslip(2026, 10) == slip
     assert s.final_payslip(2026, 11) is None
@@ -107,7 +107,7 @@ def test_deleting_a_generated_event_unlinks_it(tmp_path: Path) -> None:
 def test_punch_in_a_finalized_month_is_refused(tmp_path: Path) -> None:
     s = store(tmp_path)
     worker = standard_contract(date(2026, 10, 12))
-    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026()))
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), None))
     with pytest.raises(ValueError, match="finalizzato"):
         s.add_punch(date(2026, 10, 13), 480, None, [])
 
@@ -121,7 +121,7 @@ def test_close_and_delete_punch_in_a_finalized_month_are_refused(tmp_path: Path)
     s = store(tmp_path)
     worker = standard_contract(date(2026, 10, 12))
     opened = s.add_punch(date(2026, 10, 13), 945, None, [])
-    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026()))
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), None))
     with pytest.raises(ValueError, match="finalizzato"):
         s.close_punch(opened.id, 1080, [])
     with pytest.raises(ValueError, match="finalizzato"):
@@ -156,7 +156,7 @@ def test_saving_the_contract_refuses_extras_of_a_finalized_month(tmp_path: Path)
     s = store(tmp_path)
     worker = standard_contract(date(2026, 10, 12))
     p = s.add_punch(date(2026, 10, 13), 945, 1080, [])
-    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026()))
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), None))
     with pytest.raises(ValueError, match="finalizzato"):
         s.save_contract(worker, {p.id: [span("15:45-16:00")]})
     assert s.contract() is None

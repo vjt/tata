@@ -6,7 +6,16 @@ from itertools import pairwise
 
 from tata.festivita import festivita
 from tata.hours import scheduled_minutes
-from tata.models import MINUTES_PER_DAY, Contract, Event, EventKind, Frozen, Punch, Span
+from tata.models import (
+    MINUTES_PER_DAY,
+    NOON,
+    Contract,
+    Event,
+    EventKind,
+    Frozen,
+    Punch,
+    Span,
+)
 
 TOLERANCE = 5  # minutes per gap or overrun ignored: nobody gets docked for parking
 WINDOW = 30  # minutes around a span's end in which the button proposes to confirm it
@@ -29,6 +38,24 @@ class Shortfall(Frozen):
 
     day: date
     span: Span
+
+
+class Turno(Frozen):
+    """A half-day with a closed punch: one trip to school and back, one rimborso."""
+
+    day: date
+    morning: bool
+    punch_id: int  # the punch that opened it
+
+
+def turni(punches: list[Punch], year: int, month: int) -> list[Turno]:
+    """The month's turni: at most a morning and an afternoon a day, however many punches."""
+    result: dict[tuple[date, bool], Turno] = {}
+    for p in sorted(punches, key=lambda p: (p.day, p.start)):
+        if p.end is not None and (p.day.year, p.day.month) == (year, month):
+            key = (p.day, p.start < NOON)
+            result.setdefault(key, Turno(day=p.day, morning=key[1], punch_id=p.id))
+    return list(result.values())
 
 
 def check_punches(punches: list[Punch]) -> None:

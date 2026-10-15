@@ -66,6 +66,11 @@ Nella pagina del mese:
   collegato; cancellando la timbratura sparisce anche quello. Cambiando l'orario nel contratto
   gli EXTRA delle timbrature dei mesi non finalizzati vengono ricalcolati. Non si registrano
   timbrature nel futuro (uscita dopo l'ora attuale).
+- **Rimborso trasferte**: ogni turno timbrato (mattina o pomeriggio, al più due al giorno)
+  porta il rimborso chilometrico dell'accompagnamento a scuola con l'auto della lavoratrice:
+  km per turno × €/km delle tabelle ACI, da `TATA_RIMBORSO_KM` e `TATA_RIMBORSO_EURO_KM`
+  (entrambe o nessuna). Trasferta fuori comune, quindi non imponibile (art. 51 c.5 TUIR): sta
+  fuori dal lordo, dai contributi e dal TFR, e si aggiunge al netto nella riga *Da pagare*.
 - **Si paga il timbrato**: il prospetto (sezione *Lavorato*) conta solo le ore timbrate, più
   festività, ferie, permessi, malattia e mandata a casa confermati. Niente timbrature, niente
   paga: i giorni ancora da venire e i vuoti non confermati non sono pagati. La sezione
