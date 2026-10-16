@@ -46,11 +46,17 @@ def test_punch_on_a_festivita_is_all_extra() -> None:
     assert overruns(WORKER, punch(date(2026, 12, 8), "15:45-18:00")) == [span("15:45-18:00")]
 
 
-def test_late_arrival_beyond_tolerance_is_a_shortfall() -> None:
-    # Morning 08:00-08:45 punched 08:10-08:45 -> 10 min missing. Afternoon punched in full.
-    punches = [punch(TUE, "08:10-08:45"), punch(TUE, "15:45-18:00")]
-    now = at(2026, 10, 13, 20, 0)
-    assert shortfalls(WORKER, [], punches, now) == [Shortfall(day=TUE, span=span("08:00-08:10"))]
+def test_a_punch_over_a_scheduled_span_replaces_it() -> None:
+    # Morning 08:00-08:45 punched 08:10-08:45 (vjt 16/10: the punch, often a confirmed wifi
+    # proposal, is that turno): the 10 min before it are not worked, unpaid, not to confirm.
+    punches = [punch(TUE, "08:10-08:45"), punch(TUE, "15:45-17:30")]
+    assert shortfalls(WORKER, [], punches, at(2026, 10, 13, 20, 0)) == []
+    # A span no punch touches still is one.
+    later = at(2026, 10, 14, 20, 0)
+    wed = date(2026, 10, 14)
+    assert shortfalls(WORKER, [], [*punches, punch(wed, "15:45-18:00")], later) == [
+        Shortfall(day=wed, span=span("08:00-08:45"))
+    ]
 
 
 def test_late_arrival_within_tolerance_is_nothing() -> None:
@@ -198,3 +204,10 @@ def test_a_turno_is_a_half_day_with_a_closed_punch() -> None:
     # The afternoon done with the employer's car: still a turno, no longer hers.
     by_car = turni(punches, {(TUE, False)}, 2026, 10)
     assert [t.own_car for t in by_car] == [True, False]
+
+
+def test_the_rest_of_a_replaced_span_is_still_unpaid() -> None:
+    # 08:10-08:45 over 08:00-08:45: nothing to confirm, but 08:00-08:10 was not worked.
+    punches = [punch(TUE, "08:10-08:45"), punch(TUE, "15:45-18:00")]
+    gaps = [(e.day, e.span) for e in unpunched(WORKER, [], punches, 2026, 10) if e.day == TUE]
+    assert gaps == [(TUE, span("08:00-08:10"))]

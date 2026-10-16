@@ -834,3 +834,20 @@ def test_month_page_survives_home_assistant_down(tmp_path: Path) -> None:
     c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), FakeHomeAssistant(None))
     r = c.get("/r/1/mese/2026/10")
     assert r.status_code == 200 and "Home Assistant non raggiungibile" in r.text
+
+
+def test_a_wifi_proposal_takes_the_place_of_the_scheduled_span(tmp_path: Path) -> None:
+    # Thu 15/10 at 19:00, nothing punched: 08:00-08:45 and 15:45-18:00 scheduled, wifi
+    # proposes 07:55-08:42 and 15:45-18:03 over them. Shown once: as wifi, not as shortfall.
+    c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), FakeHomeAssistant(A_DAY))
+    page = c.get("/r/1/mese/2026/10").text
+    assert "registra 07:55-08:42" in page
+    assert "15/10/2026 · 08:00-08:45 non timbrato" not in page
+    assert "15/10/2026 · 15:45-18:00 non timbrato" not in page
+    assert "14/10/2026 · 08:00-08:45 non timbrato" in page  # no wifi that day
+    # Recorded: no shortfall either, the punch replaced the span.
+    for inizio, fine in (("7:55", "8:42"), ("15:45", "18:03")):
+        form = {"giorno": "2026-10-15", "inizio": inizio, "fine": fine}
+        assert c.post("/r/1/timbrature", data=form).status_code == 303
+    page = c.get("/r/1/mese/2026/10").text
+    assert "15/10/2026 · 08:00-08:45" not in page and 'id="wifi"' not in page

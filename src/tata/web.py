@@ -567,6 +567,11 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
         next_y, next_m = (year + 1, 1) if month == 12 else (year, month + 1)
         holidays = festivita(year, contract.patrono_mese, contract.patrono_giorno)
+        wifi = (
+            WifiBox(days=[], error="")
+            if request.state.worker
+            else wifi_unrecorded(cid, rs, year, month)
+        )
         return templates.TemplateResponse(
             request,
             "mese.html",
@@ -588,10 +593,16 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "mileage": settings.mileage,
                 "trip_cost": trip_cost(settings.mileage) if settings.mileage else None,
                 "punches": [p for p in rs.punches() if (p.day.year, p.day.month) == (year, month)],
-                "pending": pending(rs, contract, year, month),
-                "wifi": wifi_unrecorded(cid, rs, year, month)
-                if not request.state.worker
-                else WifiBox(days=[], error=""),
+                "pending": [
+                    s
+                    for s in pending(rs, contract, year, month)
+                    if not any(
+                        d.day == s.day and p.start < s.span.end and s.span.start < p.end
+                        for d in wifi.days
+                        for p in d.proposals
+                    )
+                ],  # a wifi proposal over a scheduled span takes its place (vjt 16/10)
+                "wifi": wifi,
                 "final": final,
                 "tfr": tfr(contract, rs.advances(), year, month, source(rs, contract), book),
                 "prev": f"/r/{cid}/mese/{prev_y}/{prev_m}",
@@ -625,7 +636,10 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         if any(p.end is None for p in rs.punches() if (p.day.year, p.day.month) == (year, month)):
             raise ValueError(f"c'è una timbratura aperta in {MESI[month]} {year}: chiudila prima")
         if pending(rs, contract, year, month):
-            raise ValueError(f"ci sono mancanze da confermare in {MESI[month]} {year}")
+            raise ValueError(
+                f"ci sono mancanze da confermare o turni dal wifi da registrare in "
+                f"{MESI[month]} {year}"
+            )
         if now().date() < date(year + month // 12, month % 12 + 1, 1):
             raise ValueError(f"{MESI[month]} {year} non è ancora finito")
         rs.finalize(source(rs, contract)(year, month))
