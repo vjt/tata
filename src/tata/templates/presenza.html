@@ -28,8 +28,9 @@
         {% elif d.day == today and p.end > minute %}
           {{ p }} (confermabile dalle {{ p.end | ore }})
         {% else %}
-          <form method="post" action="{{ base }}/timbrature">
-            <input type="hidden" name="giorno" value="{{ d.day.isoformat() }}">
+          <form method="post" action="{{ base }}/registra">
+            <input type="hidden" name="tipo" value="lavoro">
+            <input type="hidden" name="dal" value="{{ d.day.isoformat() }}">
             <input type="hidden" name="inizio" value="{{ p.start | ore }}">
             <input type="hidden" name="fine" value="{{ p.end | ore }}">
             <input type="hidden" name="torna" value="{{ here }}">

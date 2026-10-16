@@ -15,8 +15,9 @@
   </form>
   <p class="hint">In servizio dalle {{ open.start | ore }}</p>
 {% elif proposal.action == actions.CONFERMA %}
-  <form method="post" action="{{ base }}/timbrature">
-    <input type="hidden" name="giorno" value="{{ today.isoformat() }}">
+  <form method="post" action="{{ base }}/registra">
+    <input type="hidden" name="tipo" value="lavoro">
+    <input type="hidden" name="dal" value="{{ today.isoformat() }}">
     <input type="hidden" name="inizio" value="{{ proposal.span.start | ore }}">
     <input type="hidden" name="fine" value="{{ proposal.span.end | ore }}">
     <button class="big">Conferma turno {{ proposal.span }}</button>
@@ -29,6 +30,6 @@
     {% include "_auto.html" %}
   </form>
 {% endif %}
-  <a class="hint" href="{{ base }}/mese/{{ today.year }}/{{ today.month }}?giorno={{ today.isoformat() }}#cartellino">registra a mano</a>
+  <a class="hint" href="{{ base }}/mese/{{ today.year }}/{{ today.month }}?giorno={{ today.isoformat() }}#registra">registra a mano</a>
 </section>
 {% endblock %}

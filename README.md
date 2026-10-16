@@ -59,7 +59,7 @@ sono le ore previste dall'orario in quei giorni.
 turno** se c'è una timbratura aperta; **Conferma turno HH:MM-HH:MM** se si è oltre la metà di un
 turno previsto non ancora registrato ed entro 30 minuti dalla sua fine; altrimenti **Inizio
 turno**. Una timbratura aperta di un giorno precedente chiede l'orario di uscita. Il link
-«registra a mano» porta al cartellino del mese.
+«registra a mano» porta al form *Registra* del mese.
 
 Nella pagina del mese:
 
@@ -74,11 +74,11 @@ Nella pagina del mese:
   (entrambe o nessuna). Trasferta fuori comune, quindi non imponibile (art. 51 c.5 TUIR): sta
   fuori dal lordo, dai contributi e dal TFR, e si aggiunge al netto nella riga *Da pagare*.
   L'auto si dichiara per turno, *auto propria* o *auto del datore* (che non rimborsa nulla):
-  accanto al pulsante di *timbra*, a inizio turno, e nel form del cartellino; di default è
+  accanto al pulsante di *timbra*, a inizio turno, e nel form *Registra*; di default è
   quella della lavoratrice. Il cartellino è una tabella: ore, giorno, orario, auto, costo del
   tempo (minuti × paga oraria, senza maggiorazioni: un colpo d'occhio, non il prospetto) e
   costo della trasferta (solo con l'auto propria, una per turno); ✏️ carica la riga nel form
-  per correggerla, ❌ la cancella.
+  *Registra* per correggerla, ❌ la cancella.
 - **Si paga il timbrato**: il prospetto (sezione *Lavorato*) conta solo le ore timbrate, più
   festività, ferie, permessi, malattia e mandata a casa confermati. Niente timbrature, niente
   paga: i giorni ancora da venire e i vuoti non confermati non sono pagati. La sezione

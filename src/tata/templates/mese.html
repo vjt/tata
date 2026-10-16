@@ -20,7 +20,7 @@
         {% set w = work[day] %}
         {% set minutes = w.buckets.values() | sum %}
         <td class="{{ 'holiday' if day in holidays or day.weekday() == 6 }}">
-          <a href="?giorno={{ day.isoformat() }}#evento">
+          <a href="?giorno={{ day.isoformat() }}#registra">
             <span class="n">{{ day.day }}</span>
             {% if minutes %}<span class="h">{{ minutes | ore }}</span>{% endif %}
             {% for e in events if e.day == day %}<span class="badge {{ e.kind }}">{{ e.kind }}</span>{% endfor %}
@@ -33,43 +33,6 @@
   </tbody>
 </table>
 
-{% if employer and not final %}
-<form id="evento" method="post" action="{{ base }}/eventi" class="card form">
-  <h2>Registra un'eccezione</h2>
-  <label>Tipo
-    <select name="kind">{% for k in kinds %}<option value="{{ k }}">{{ k }}</option>{% endfor %}</select>
-  </label>
-  <div class="row">
-    <label>Dal <input type="date" name="dal" required value="{{ selected }}"></label>
-    <label>Al <input type="date" name="al"></label>
-  </div>
-  <div class="row">
-    <label>Dalle <input type="time" name="inizio"></label>
-    <label>Alle <input name="fine" placeholder="hh:mm (24:00 per mezzanotte)" pattern="\d{1,2}:\d{2}"></label>
-  </div>
-  <p class="hint">Ferie e malattia: giornate intere (anche un intervallo di date). Permessi e assenze:
-    giornata intera o un orario. Extra e mora (mandata a casa, pagata): sempre un orario, un giorno alla volta.</p>
-  <label>Nota <input name="note"></label>
-  <button>Aggiungi</button>
-</form>
-{% endif %}
-
-{% if events %}
-<section class="card">
-  <h2>Eccezioni del mese</h2>
-  <ul class="events">
-  {% for e in events %}
-    <li>
-      <span>{{ e.day | dmy }} · {{ e.kind }}{% if e.span %} {{ e.span }}{% endif %}{% if e.note %} · {{ e.note }}{% endif %}</span>
-      {% if employer and not final %}
-      <form method="post" action="{{ base }}/eventi/{{ e.id }}/elimina" onsubmit="return confirm('Eliminare {{ e.kind }} del {{ e.day | dmy }}?')"><button class="link">elimina</button></form>
-      {% endif %}
-    </li>
-  {% endfor %}
-  </ul>
-</section>
-{% endif %}
-
 {% if pending %}
 <section class="card error">
   <h2>Da confermare</h2>
@@ -79,8 +42,8 @@
       <span>{{ s.day | dmy }} · {{ s.span }} non timbrato</span>
       <span class="actions">
       {% if employer %}{% for kind, label in [("assenza", "assente"), ("permesso", "permesso"), ("mora", "mandata a casa")] %}
-        <form method="post" action="{{ base }}/eventi">
-          <input type="hidden" name="kind" value="{{ kind }}">
+        <form method="post" action="{{ base }}/registra">
+          <input type="hidden" name="tipo" value="{{ kind }}">
           <input type="hidden" name="dal" value="{{ s.day.isoformat() }}">
           <input type="hidden" name="al" value="">
           <input type="hidden" name="inizio" value="{{ s.span.start | ore }}">
@@ -106,8 +69,9 @@
       <span>{{ d.day | dmy }}{% if d.anomalies %} · <strong>da controllare:</strong> {{ d.anomalies | join(", ") }}{% endif %}</span>
       <span class="actions">
       {% for p in d.proposals %}
-        <form method="post" action="{{ base }}/timbrature">
-          <input type="hidden" name="giorno" value="{{ d.day.isoformat() }}">
+        <form method="post" action="{{ base }}/registra">
+          <input type="hidden" name="tipo" value="lavoro">
+          <input type="hidden" name="dal" value="{{ d.day.isoformat() }}">
           <input type="hidden" name="inizio" value="{{ p.start | ore }}">
           <input type="hidden" name="fine" value="{{ p.end | ore }}">
           <input type="hidden" name="torna" value="{{ base }}/mese/{{ year }}/{{ month }}">
@@ -141,7 +105,7 @@
         <td class="num">{% if t and t.own_car and trip_cost %}{{ trip_cost | eur }}{% endif %}</td>
         {% if employer and not final %}
         <td class="actions">
-          {% if p.end is not none %}<a class="icon" href="?modifica={{ p.id }}#timbratura" title="modifica" aria-label="modifica">✏️</a>{% endif %}
+          {% if p.end is not none %}<a class="icon" href="?modifica={{ p.id }}#registra" title="modifica" aria-label="modifica">✏️</a>{% endif %}
           <form method="post" action="{{ base }}/timbrature/{{ p.id }}/elimina" onsubmit="return confirm('Eliminare la timbratura del {{ p.day | dmy }}{% if p.end is not none %} {{ p.span() }}{% endif %}?')"><button class="icon" title="elimina" aria-label="elimina">❌</button></form>
         </td>
         {% endif %}
@@ -155,18 +119,64 @@
     rimborso {{ slip.rimborso.importo | eur }} (non imponibile).</p>
   {% endif %}
   {% endif %}
-  {% if not final %}
-  <form method="post" action="{{ base }}/timbrature" class="form inline" id="timbratura">
-    {% if editing %}<input type="hidden" name="id" value="{{ editing.id }}">{% endif %}
-    <input type="date" name="giorno" required value="{{ editing.day.isoformat() if editing else selected }}">
-    <input name="inizio" required placeholder="entrata hh:mm" pattern="\d{1,2}:\d{2}" value="{{ editing.start | ore if editing }}">
-    <input name="fine" required placeholder="uscita hh:mm" pattern="\d{1,2}:\d{2}" value="{{ editing.end | ore if editing }}">
-    {% include "_auto.html" %}
-    <button>{% if editing %}Salva modifica{% else %}Aggiungi timbratura{% endif %}</button>
-    {% if editing %}<a class="link" href="?#cartellino">annulla</a>{% endif %}
-  </form>
-  {% endif %}
 </section>
+
+{% if events %}
+<section class="card">
+  <h2>Eccezioni del mese</h2>
+  <ul class="events">
+  {% for e in events %}
+    <li>
+      <span>{{ e.day | dmy }} · {{ e.kind }}{% if e.span %} {{ e.span }}{% endif %}{% if e.note %} · {{ e.note }}{% endif %}</span>
+      {% if employer and not final %}
+      <form method="post" action="{{ base }}/eventi/{{ e.id }}/elimina" onsubmit="return confirm('Eliminare {{ e.kind }} del {{ e.day | dmy }}?')"><button class="link">elimina</button></form>
+      {% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if not final %}
+<form id="registra" method="post" action="{{ base }}/registra" class="card form">
+  <h2>{% if editing %}Modifica timbratura{% else %}Registra{% endif %}</h2>
+  {% if editing %}<input type="hidden" name="id" value="{{ editing.id }}">{% endif %}
+  <label>Tipo
+    <select name="tipo" id="tipo">
+      <option value="lavoro">lavoro</option>
+      {% if employer and not editing %}{% for k in kinds %}<option value="{{ k }}">{{ k }}</option>{% endfor %}{% endif %}
+    </select>
+  </label>
+  <div class="row">
+    <label>{% if employer %}Dal{% else %}Giorno{% endif %} <input type="date" name="dal" required value="{{ editing.day.isoformat() if editing else selected }}"></label>
+    {% if employer and not editing %}<label data-solo="eventi">Al <input type="date" name="al"></label>{% endif %}
+  </div>
+  <div class="row">
+    <label>Dalle <input name="inizio" placeholder="hh:mm" pattern="\d{1,2}:\d{2}" value="{{ editing.start | ore if editing }}"></label>
+    <label>Alle <input name="fine" placeholder="hh:mm (24:00 per mezzanotte)" pattern="\d{1,2}:\d{2}" value="{{ editing.end | ore if editing }}"></label>
+  </div>
+  <div data-solo="lavoro">{% include "_auto.html" %}</div>
+  {% if employer and not editing %}
+  <p class="hint" data-solo="eventi">Ferie e malattia: giornate intere (anche un intervallo di date). Permessi e assenze:
+    giornata intera o un orario. Extra e mora (mandata a casa, pagata): sempre un orario, un giorno alla volta.</p>
+  <label data-solo="eventi">Nota <input name="note"></label>
+  {% endif %}
+  <p class="actions">
+    <button>{% if editing %}Salva modifica{% else %}Registra{% endif %}</button>
+    {% if editing %}<a class="link" href="?#cartellino">annulla</a>{% endif %}
+  </p>
+</form>
+<script>
+  (() => {
+    const tipo = document.getElementById("tipo");
+    const show = () => document.querySelectorAll("#registra [data-solo]").forEach(el => {
+      el.hidden = (el.dataset.solo === "lavoro") !== (tipo.value === "lavoro");
+    });
+    tipo.addEventListener("change", show);
+    show();
+  })();
+</script>
+{% endif %}
 
 <section class="card">
   <h2>Lavorato · prospetto paga {% if final %}<small>(finalizzato)</small>{% endif %}</h2>

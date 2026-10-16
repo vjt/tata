@@ -85,6 +85,7 @@ PresenceSource = Callable[[str, datetime, datetime], History]
 HA_VARS = ("TATA_HA_URL", "TATA_HA_TOKEN")
 MILEAGE_VARS = ("TATA_RIMBORSO_KM", "TATA_RIMBORSO_EURO_KM")
 RETURN_TO = re.compile(r"/r/\d+/(presenza|mese)/\d{4}/\d{1,2}")
+LAVORO = "lavoro"  # the registra form's tipo for worked time (a punch); the others are events
 SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
 COOKIE = "tata_sessione"
 SESSION = timedelta(days=90)  # the PWA on her phone should not ask every week
@@ -97,7 +98,7 @@ def worker_routes(cid: int) -> dict[str, re.Pattern[str]]:
     return {
         "GET": re.compile(rf"/|/timbra|{base}/|{base}/timbra|{base}/mese/\d{{4}}/\d{{1,2}}"
                           rf"(/prospetto\.pdf)?"),
-        "POST": re.compile(rf"/logout|{base}/timbra/(inizio|fine)|{base}/timbrature"),
+        "POST": re.compile(rf"/logout|{base}/timbra/(inizio|fine)|{base}/registra"),
     }  # fmt: skip
 
 
@@ -671,12 +672,23 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         rs.finalize(source(rs, contract)(year, month))
         return RedirectResponse(f"/r/{cid}/mese/{year}/{month}", status_code=303)
 
-    @app.post("/r/{cid}/timbrature")
-    async def add_punch(request: Request, cid: int) -> RedirectResponse:
+    @app.post("/r/{cid}/registra")
+    async def register(request: Request, cid: int) -> RedirectResponse:
+        """The one registra form: worked time (a punch, the worker may add one too) or an
+        event (ferie, assenza, extra, ...: the employer's)."""
+        form = await request.form()
+        if form.get("tipo") == LAVORO:
+            return add_punch(request, cid, form)
+        if request.state.worker:
+            raise HTTPException(403)
+        return add_event(cid, form)
+
+    def add_punch(request: Request, cid: int, form: FormData) -> RedirectResponse:
         rs = store.rapporto(cid)
         contract = rs.contract()
-        form = await request.form()
-        day = date.fromisoformat(_field(form, "giorno"))
+        day = date.fromisoformat(_field(form, "dal"))
+        if form.get("al") not in (None, "", day.isoformat()):
+            raise ValueError("il lavoro si registra un giorno alla volta")
         s = Span.parse(f"{_field(form, 'inizio')}-{_field(form, 'fine')}")
         edited = form.get("id")  # a correction from Modifica: the employer's alone
         if edited and request.state.worker:
@@ -780,12 +792,10 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
 
     # ---- events
 
-    @app.post("/r/{cid}/eventi")
-    async def add_event(request: Request, cid: int) -> RedirectResponse:
+    def add_event(cid: int, form: FormData) -> RedirectResponse:
         rs = store.rapporto(cid)
         contract = rs.contract()
-        form = await request.form()
-        kind = EventKind(_field(form, "kind"))
+        kind = EventKind(_field(form, "tipo"))
         first = date.fromisoformat(_field(form, "dal"))
         last_text = _field(form, "al")
         last = date.fromisoformat(last_text) if last_text else first
