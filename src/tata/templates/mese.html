@@ -126,21 +126,30 @@
 <section class="card" id="cartellino">
   <h2>Cartellino</h2>
   {% if punches %}
-  <ul class="events">
-  {% for p in punches %}
-    <li{% if p.end is not none and p.end - p.start > 480 %} class="long"{% endif %}>
-      <span>{% if p.end is none %}{{ p.day | dmy }} · dalle {{ p.start | ore }} (aperta){% else %}<b>{{ (p.end - p.start) | durata }}</b> · {{ p.day | dmy }} · {{ p.span() }}{% endif %}
-        {%- set t = trips.get(p.id) %}
-        {%- if t %} · {% if t.own_car %}auto propria{% if mileage %}, trasferta {{ mileage.km_turno | num }} km{% endif %}{% else %}auto del datore{% endif %}{% endif %}</span>
-      {% if employer and not final %}
-      <span class="actions">
-      {% if p.end is not none %}<a class="link" href="?modifica={{ p.id }}#timbratura">modifica</a>{% endif %}
-      <form method="post" action="{{ base }}/timbrature/{{ p.id }}/elimina"><button class="link">elimina</button></form>
-      </span>
-      {% endif %}
-    </li>
-  {% endfor %}
-  </ul>
+  <div class="scroll">
+  <table class="cartellino">
+    <thead><tr><th>Ore</th><th>Giorno</th><th>Orario</th><th>Auto</th><th>Tempo</th><th>Trasferta</th>{% if employer and not final %}<th></th>{% endif %}</tr></thead>
+    <tbody>
+    {% for p in punches %}
+      {%- set t = trips.get(p.id) %}
+      <tr{% if p.end is not none and p.end - p.start > 480 %} class="long"{% endif %}>
+        <td><b>{% if p.end is not none %}{{ (p.end - p.start) | durata }}{% endif %}</b></td>
+        <td>{{ p.day | dmy }}</td>
+        <td>{% if p.end is none %}dalle {{ p.start | ore }} (aperta){% else %}{{ p.span() }}{% endif %}</td>
+        <td>{% if t %}{% if t.own_car %}auto propria{% else %}auto del datore{% endif %}{% endif %}</td>
+        <td class="num">{% if p.id in time_cost %}{{ time_cost[p.id] | eur }}{% endif %}</td>
+        <td class="num">{% if t and t.own_car and trip_cost %}{{ trip_cost | eur }}{% endif %}</td>
+        {% if employer and not final %}
+        <td class="actions">
+          {% if p.end is not none %}<a class="icon" href="?modifica={{ p.id }}#timbratura" title="modifica" aria-label="modifica">✏️</a>{% endif %}
+          <form method="post" action="{{ base }}/timbrature/{{ p.id }}/elimina"><button class="icon" title="elimina" aria-label="elimina">❌</button></form>
+        </td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
   {% if slip.rimborso %}
   <p>Trasferte del mese: {{ slip.rimborso.quantita | int }} turni{% if mileage %}, {{ (slip.rimborso.quantita * mileage.km_turno) | num }} km{% endif %},
     rimborso {{ slip.rimborso.importo | eur }} (non imponibile).</p>

@@ -24,8 +24,9 @@ shows it below the netto: **netto** stays lordo − trattenute, **da pagare** = 
 
 ## Where it shows
 
-- Cartellino (month page): each row with its hours, then the car; km only for a trasferta
-  that happened (her car), no price per row; the month's totals. The car is declared per
+- Cartellino (month page): a table, one row per punch, aligned columns: hours, day, span,
+  car, time cost (minutes × plain hourly pay, no maggiorazioni) and trasferta cost (her car,
+  once per turno), no km; the month's totals. ✏️ edits a row, ❌ deletes it. The car is declared per
   turno by a radio (*auto propria* / *auto del datore*) next to the timbra button and in
   the punch form, which *modifica* fills with a row to correct it (vjt 16/10).
 - Prospetto (page and PDF): a line under the netto, and the amount to pay.

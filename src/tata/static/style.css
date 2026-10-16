@@ -54,6 +54,14 @@ form.inline input { padding: .25rem; font: inherit; }
 .events { list-style: none; padding: 0; margin: 0; }
 .events li { display: flex; justify-content: space-between; gap: 1rem; padding: .35rem 0; border-bottom: 1px solid var(--line); }
 .events form { margin: 0; }
+.scroll { overflow-x: auto; }
+table.cartellino { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.cartellino th, .cartellino td { text-align: left; padding: .35rem .4rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.cartellino th { font-weight: 400; color: var(--muted); }
+.cartellino td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.cartellino td.actions { display: table-cell; text-align: right; }
+.cartellino td.actions form { display: inline; }
+button.icon, a.icon { background: none; border: 0; padding: 0 .2rem; font-size: 1rem; cursor: pointer; text-decoration: none; width: auto; }
 
 table.lines, table.paga, table.ratei { width: 100%; border-collapse: collapse; margin: .5rem 0 1rem; font-size: .9rem; }
 .lines th, .lines td, .paga th, .paga td, .ratei th, .ratei td { text-align: left; padding: .35rem .25rem; border-bottom: 1px solid var(--line); }

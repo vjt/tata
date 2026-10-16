@@ -253,6 +253,12 @@ def _employed_in(contract: Contract, year: int, month: int) -> bool:
     return contract.assunzione <= last and (ends is None or ends >= first)
 
 
+def time_cost(oraria: Decimal, minutes: int) -> Decimal:
+    """A cartellino row's time at the plain hourly pay (no maggiorazioni), rounded once: a
+    glance at what the row is worth, not a payslip line."""
+    return euro(oraria * minutes / 60)
+
+
 def trip_cost(mileage: Mileage) -> Decimal:
     """One turno's rimborso: km x €/km, rounded once."""
     return euro(mileage.km_turno * mileage.euro_km)

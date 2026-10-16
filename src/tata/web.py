@@ -48,7 +48,7 @@ from tata.models import (
     Session,
     Span,
 )
-from tata.payslip import Payslip, compute_payslip, rimborso_line
+from tata.payslip import Payslip, compute_payslip, rimborso_line, time_cost, trip_cost
 from tata.pdf import render_pdf
 from tata.presenza import History, PresenceDay, presence_days
 from tata.rates import RatesBook
@@ -609,6 +609,12 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                     t.punch_id: t for t in turni(rs.punches(), rs.employer_car(), year, month)
                 },
                 "mileage": settings.mileage,
+                "trip_cost": trip_cost(settings.mileage) if settings.mileage else None,
+                "time_cost": {
+                    p.id: time_cost(slip.paga.oraria, p.end - p.start)
+                    for p in rs.punches()
+                    if p.end is not None
+                },
                 "punches": [p for p in rs.punches() if (p.day.year, p.day.month) == (year, month)],
                 "pending": [
                     s

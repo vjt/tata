@@ -2,6 +2,7 @@ import sqlite3
 from contextlib import closing
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.error import URLError
 from zoneinfo import ZoneInfo
@@ -776,11 +777,15 @@ def test_each_turno_carries_its_rimborso(tmp_path: Path) -> None:
     for inizio, fine in (("08:00", "08:45"), ("15:45", "16:30"), ("16:40", "18:00")):
         c.post("/r/1/timbrature", data={"giorno": "2026-10-13", "inizio": inizio, "fine": fine})
     page = c.get("/r/1/mese/2026/10").text
-    # Each row: hours first, the car, km only with her own car, no price (vjt 16/10).
-    assert "<b>45 min</b> · 13/10/2026 · 08:00-08:45 · auto propria, trasferta 12,00 km" in page
-    assert "<b>50 min</b> · 13/10/2026 · 16:40-18:00" not in page  # 16:40-18:00 = 80 min
-    assert "<b>1 h 20 min</b> · 13/10/2026 · 16:40-18:00</span>" in page  # same turno: no trip
-    assert page.count("auto propria, trasferta") == 2 and "5,36" not in page.split("Lavorato")[0]
+    # Columns (vjt 16/10): hours, day, span, car, time at the plain 8,86 €/h, trasferta.
+    # 45 min x 8,86 / 60 = 6,645 -> 6,65; 80 min -> 11,8133 -> 11,81. Trasferta 5,36 (below),
+    # once per turno: the second afternoon punch has none.
+    assert cartellino(page) == [
+        ["45 min", "13/10/2026", "08:00-08:45", "auto propria", "6,65 €", "5,36 €"],
+        ["45 min", "13/10/2026", "15:45-16:30", "auto propria", "6,65 €", "5,36 €"],
+        ["1 h 20 min", "13/10/2026", "16:40-18:00", "", "11,81 €", ""],
+    ]
+    assert "km" not in page.split('id="cartellino"')[1].split("</table>")[0]
     # 12 km x 0,4463 = 5,3556 -> 5,36 a turno; 2 turni = 24 km, 10,72 EUR.
     assert "Trasferte del mese: 2 turni, 24,00 km," in page and "rimborso 10,72 €" in page
     # Outside the lordo: netto + rimborso = da pagare.
@@ -795,7 +800,14 @@ def test_each_turno_carries_its_rimborso(tmp_path: Path) -> None:
     form = {"id": str(first_pm.id), "giorno": "2026-10-13", "inizio": "15:45", "fine": "16:30"}
     assert c.post("/r/1/timbrature", data={**form, "auto": "datore"}).status_code == 303
     page = c.get("/r/1/mese/2026/10").text
-    assert "<b>45 min</b> · 13/10/2026 · 15:45-16:30 · auto del datore</span>" in page
+    assert cartellino(page)[1] == [
+        "45 min",
+        "13/10/2026",
+        "15:45-16:30",
+        "auto del datore",
+        "6,65 €",
+        "",
+    ]
     assert "Trasferte del mese: 1 turni, 12,00 km," in page and "rimborso 5,36 €" in page
     assert "turni/auto" not in page  # no toggle any more
     # And back to hers.
@@ -809,7 +821,8 @@ def test_modifica_loads_the_row_and_saves_it_in_place(tmp_path: Path) -> None:
     c.post("/r/1/timbrature", data=form)
     [p] = Store(tmp_path / "tata.sqlite").rapporto(1).punches()
     page = c.get("/r/1/mese/2026/10").text
-    assert f'href="?modifica={p.id}#timbratura"' in page
+    assert f'href="?modifica={p.id}#timbratura" title="modifica" aria-label="modifica">✏️' in page
+    assert 'aria-label="elimina">❌' in page
     form_html = c.get(f"/r/1/mese/2026/10?modifica={p.id}").text.split('id="timbratura"')[1]
     form_html = form_html.split("</form>")[0]
     assert f'name="id" value="{p.id}"' in form_html and 'value="2026-10-13"' in form_html
@@ -835,11 +848,41 @@ def test_the_car_is_declared_at_the_start_of_the_turno(tmp_path: Path) -> None:
     assert c.post("/r/1/timbra/inizio", data={"auto": "datore"}).status_code == 303
     clock.value = rome(2026, 10, 13, 18, 0)
     c.post("/r/1/timbra/fine", data={"alle": ""})
-    assert "15:45-18:00 · auto del datore" not in c.get("/r/1/mese/2026/10").text
-    assert "15:44-18:00 · auto del datore" in c.get("/r/1/mese/2026/10").text
+    [row] = cartellino(c.get("/r/1/mese/2026/10").text)
+    assert row[2:4] == ["15:44-18:00", "auto del datore"] and row[5] == ""
     form = {"giorno": "2026-10-13", "inizio": "8:00", "fine": "8:45", "auto": "bici"}
     assert c.post("/r/1/timbrature", data=form).status_code == 400
     assert len(Store(tmp_path / "tata.sqlite").rapporto(1).punches()) == 1  # nothing written
+
+
+class _Cells(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.rows: list[list[str]] = []
+        self.cell: list[str] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "tr":
+            self.rows.append([])
+        elif tag == "td" and ("class", "actions") not in attrs:
+            self.cell = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "td" and self.cell is not None:
+            self.rows[-1].append(" ".join("".join(self.cell).split()))
+            self.cell = None
+
+    def handle_data(self, data: str) -> None:
+        if self.cell is not None:
+            self.cell.append(data)
+
+
+def cartellino(page: str) -> list[list[str]]:
+    """The cartellino table's body rows, cell texts, the action buttons left out."""
+    table = page.split('<table class="cartellino">')[1].split("</table>")[0]
+    parser = _Cells()
+    parser.feed(table.split("<tbody>")[1])
+    return parser.rows
 
 
 def italian(amount: str) -> Decimal:
