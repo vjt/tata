@@ -129,19 +129,14 @@
   <ul class="events">
   {% for p in punches %}
     <li{% if p.end is not none and p.end - p.start > 480 %} class="long"{% endif %}>
-      <span>{{ p.day | dmy }} · {% if p.end is none %}dalle {{ p.start | ore }} (aperta){% else %}{{ p.span() }}{% endif %}
-        {% set t = trips.get(p.id) %}
-        {% if t and mileage %} · {% if t.own_car %}trasferta {{ mileage.km_turno | num }} km, {{ trip_cost | eur }}{% else %}auto del datore, niente trasferta{% endif %}{% endif %}</span>
-      {% if t and mileage and employer and not final %}
-      <form method="post" action="{{ base }}/turni/auto">
-        <input type="hidden" name="giorno" value="{{ t.day.isoformat() }}">
-        <input type="hidden" name="mattina" value="{{ 1 if t.morning else 0 }}">
-        <input type="hidden" name="datore" value="{{ 1 if t.own_car else 0 }}">
-        <button class="link">{% if t.own_car %}auto del datore{% else %}auto sua{% endif %}</button>
-      </form>
-      {% endif %}
+      <span>{% if p.end is none %}{{ p.day | dmy }} · dalle {{ p.start | ore }} (aperta){% else %}<b>{{ (p.end - p.start) | durata }}</b> · {{ p.day | dmy }} · {{ p.span() }}{% endif %}
+        {%- set t = trips.get(p.id) %}
+        {%- if t %} · {% if t.own_car %}auto propria{% if mileage %}, trasferta {{ mileage.km_turno | num }} km{% endif %}{% else %}auto del datore{% endif %}{% endif %}</span>
       {% if employer and not final %}
+      <span class="actions">
+      {% if p.end is not none %}<a class="link" href="?modifica={{ p.id }}#timbratura">modifica</a>{% endif %}
       <form method="post" action="{{ base }}/timbrature/{{ p.id }}/elimina"><button class="link">elimina</button></form>
+      </span>
       {% endif %}
     </li>
   {% endfor %}
@@ -152,11 +147,14 @@
   {% endif %}
   {% endif %}
   {% if not final %}
-  <form method="post" action="{{ base }}/timbrature" class="form inline">
-    <input type="date" name="giorno" required value="{{ selected }}">
-    <input name="inizio" required placeholder="entrata hh:mm" pattern="\d{1,2}:\d{2}">
-    <input name="fine" required placeholder="uscita hh:mm" pattern="\d{1,2}:\d{2}">
-    <button>Aggiungi timbratura</button>
+  <form method="post" action="{{ base }}/timbrature" class="form inline" id="timbratura">
+    {% if editing %}<input type="hidden" name="id" value="{{ editing.id }}">{% endif %}
+    <input type="date" name="giorno" required value="{{ editing.day.isoformat() if editing else selected }}">
+    <input name="inizio" required placeholder="entrata hh:mm" pattern="\d{1,2}:\d{2}" value="{{ editing.start | ore if editing }}">
+    <input name="fine" required placeholder="uscita hh:mm" pattern="\d{1,2}:\d{2}" value="{{ editing.end | ore if editing }}">
+    {% include "_auto.html" %}
+    <button>{% if editing %}Salva modifica{% else %}Aggiungi timbratura{% endif %}</button>
+    {% if editing %}<a class="link" href="?#cartellino">annulla</a>{% endif %}
   </form>
   {% endif %}
 </section>

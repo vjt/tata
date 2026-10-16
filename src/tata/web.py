@@ -36,6 +36,7 @@ from tata.homeassistant import fetch_history
 from tata.hours import month_work, range_days
 from tata.inps import quarter_contributions, quarter_months
 from tata.models import (
+    NOON,
     Contract,
     Event,
     EventKind,
@@ -47,7 +48,7 @@ from tata.models import (
     Session,
     Span,
 )
-from tata.payslip import Payslip, compute_payslip, rimborso_line, trip_cost
+from tata.payslip import Payslip, compute_payslip, rimborso_line
 from tata.pdf import render_pdf
 from tata.presenza import History, PresenceDay, presence_days
 from tata.rates import RatesBook
@@ -345,11 +346,18 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         check_punches([*others, draft])
         extras = overruns(contract, draft)
         drafts = [Event(id=0, day=draft.day, kind=EventKind.EXTRA, span=s, note="") for s in extras]
-        check_events(contract, rs.events() + drafts)
+        links = rs.punch_links()  # its own old EXTRA go: they are replaced
+        kept = [e for e in rs.events() if draft.id == 0 or links.get(e.id) != draft.id]
+        check_events(contract, kept + drafts)
         if draft.id == 0:
             rs.add_punch(draft.day, draft.start, draft.end, extras)
         else:
-            rs.close_punch(draft.id, draft.end, extras)
+            rs.update_punch(draft.id, draft.day, draft.start, draft.end, extras)
+
+    def declare_car(rs: RapportoStore, day: date, start: int, employer_car: bool | None) -> None:
+        """The car of the turno a punch starting at `start` belongs to; None: not said."""
+        if employer_car is not None:
+            rs.set_employer_car(day, start < NOON, employer_car)
 
     def paid_events(rs: RapportoStore, contract: Contract, year: int, month: int) -> list[Event]:
         """The events pay is computed from: the stored ones, and the unpunched time as ASSENZA
@@ -451,18 +459,22 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "stale": open_ is not None and open_.day != moment.date(),
                 "today": moment.date(),
                 "actions": Action,
+                "own_car": True,  # declared at the start of the turno
             },
         )
 
     @app.post("/r/{cid}/timbra/inizio")
-    def punch_in(cid: int) -> RedirectResponse:
+    async def punch_in(request: Request, cid: int) -> RedirectResponse:
         rs = store.rapporto(cid)
         contract = rs.contract()
+        form = await request.form()
+        car = _employer_car(form)
         moment = now()
         draft = Punch(id=0, day=moment.date(), start=minute_of(moment), end=None)
         check_employed(contract, draft)
         check_punches([*rs.punches(), draft])
         rs.add_punch(draft.day, draft.start, None, [])
+        declare_car(rs, draft.day, draft.start, car)
         return RedirectResponse(f"/r/{cid}/timbra", status_code=303)
 
     @app.post("/r/{cid}/timbra/fine")
@@ -567,6 +579,12 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         prev_y, prev_m = (year - 1, 12) if month == 1 else (year, month - 1)
         next_y, next_m = (year + 1, 1) if month == 12 else (year, month + 1)
         holidays = festivita(year, contract.patrono_mese, contract.patrono_giorno)
+        modifica = request.query_params.get("modifica")
+        editing = (
+            {p.id: p for p in rs.punches() if p.end is not None}[int(modifica)]
+            if modifica and not request.state.worker
+            else None
+        )
         wifi = (
             WifiBox(days=[], error="")
             if request.state.worker
@@ -591,7 +609,6 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                     t.punch_id: t for t in turni(rs.punches(), rs.employer_car(), year, month)
                 },
                 "mileage": settings.mileage,
-                "trip_cost": trip_cost(settings.mileage) if settings.mileage else None,
                 "punches": [p for p in rs.punches() if (p.day.year, p.day.month) == (year, month)],
                 "pending": [
                     s
@@ -609,6 +626,9 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "next": f"/r/{cid}/mese/{next_y}/{next_m}",
                 "giorni": GIORNI,
                 "selected": request.query_params.get("giorno", date(year, month, 1).isoformat()),
+                "editing": editing,
+                "own_car": editing is None
+                or (editing.day, editing.start < NOON) not in rs.employer_car(),
             },
         )
 
@@ -652,22 +672,19 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         form = await request.form()
         day = date.fromisoformat(_field(form, "giorno"))
         s = Span.parse(f"{_field(form, 'inizio')}-{_field(form, 'fine')}")
-        save_punch(rs, contract, Punch(id=0, day=day, start=s.start, end=s.end))
+        edited = form.get("id")  # a correction from Modifica: the employer's alone
+        if edited and request.state.worker:
+            raise HTTPException(403)
+        punch_id = int(str(edited)) if edited else 0
+        car = _employer_car(form)
+        save_punch(rs, contract, Punch(id=punch_id, day=day, start=s.start, end=s.end))
+        declare_car(rs, day, s.start, car)
         back = form.get("torna")
         if isinstance(back, str) and RETURN_TO.fullmatch(back) and back.startswith(f"/r/{cid}/"):
             return RedirectResponse(back, status_code=303)
         if day == now().date():
             return RedirectResponse(f"/r/{cid}/timbra", status_code=303)
         return RedirectResponse(f"/r/{cid}/mese/{day.year}/{day.month}", status_code=303)
-
-    @app.post("/r/{cid}/turni/auto")
-    async def turno_car(request: Request, cid: int) -> RedirectResponse:
-        """Whose car a turno was done with: the employer's pays no rimborso."""
-        rs = store.rapporto(cid)
-        form = await request.form()
-        day = date.fromisoformat(_field(form, "giorno"))
-        rs.set_employer_car(day, _field(form, "mattina") == "1", _field(form, "datore") == "1")
-        return RedirectResponse(f"/r/{cid}/mese/{day.year}/{day.month}#cartellino", status_code=303)
 
     @app.post("/r/{cid}/timbrature/{punch_id}/elimina")
     def delete_punch(cid: int, punch_id: int) -> RedirectResponse:
@@ -897,6 +914,7 @@ def _templates() -> Jinja2Templates:
     templates.env.filters["dmy"] = _fmt_dmy
     templates.env.filters["ore"] = _fmt_ore
     templates.env.filters["hm"] = _fmt_hm
+    templates.env.filters["durata"] = _fmt_min
     return templates
 
 
@@ -909,6 +927,17 @@ def _fmt_dmy(value: date) -> str:
     return value.strftime("%d/%m/%Y")
 
 
+def _employer_car(form: FormData) -> bool | None:
+    """The form's car radio: "propria" (hers, rimborso), "datore" (the employer's, none), or
+    absent (None: leave the turno as it is)."""
+    auto = form.get("auto")
+    if auto is None:
+        return None
+    if auto not in ("propria", "datore"):
+        raise ValueError(f"auto sconosciuta: {auto}")
+    return auto == "datore"
+
+
 def _fmt_ore(minutes: int) -> str:
     return f"{minutes // 60}:{minutes % 60:02d}"
 
@@ -916,9 +945,12 @@ def _fmt_ore(minutes: int) -> str:
 def _fmt_hm(hours: Decimal) -> str:
     """Hours as hours and minutes: 1,62 -> "1 h 37 min". The payslip keeps hours to the
     cent of an hour, 0,3 min at most from the minutes they came from: rounding restores them."""
-    total = int((hours * 60).to_integral_value(ROUND_HALF_UP))
-    h, m = divmod(total, 60)
-    return f"{h} h {m} min" if m else f"{h} h"
+    return _fmt_min(int((hours * 60).to_integral_value(ROUND_HALF_UP)))
+
+
+def _fmt_min(minutes: int) -> str:
+    h, m = divmod(minutes, 60)
+    return " ".join(([f"{h} h"] if h or not m else []) + ([f"{m} min"] if m else []))
 
 
 def _fmt_eur(value: Decimal) -> str:

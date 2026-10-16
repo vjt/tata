@@ -73,8 +73,10 @@ Nella pagina del mese:
   km per turno × €/km delle tabelle ACI, da `TATA_RIMBORSO_KM` e `TATA_RIMBORSO_EURO_KM`
   (entrambe o nessuna). Trasferta fuori comune, quindi non imponibile (art. 51 c.5 TUIR): sta
   fuori dal lordo, dai contributi e dal TFR, e si aggiunge al netto nella riga *Da pagare*.
-  Nel cartellino, il pulsante *auto del datore* toglie il rimborso a quel turno (*auto sua* lo
-  rimette): di default l'auto è della lavoratrice.
+  L'auto si dichiara per turno, *auto propria* o *auto del datore* (che non rimborsa nulla):
+  accanto al pulsante di *timbra*, a inizio turno, e nel form del cartellino; di default è
+  quella della lavoratrice. Ogni riga del cartellino mostra prima le ore, poi l'auto, e i km
+  solo se la trasferta c'è stata; *modifica* carica la riga nel form per correggerla.
 - **Si paga il timbrato**: il prospetto (sezione *Lavorato*) conta solo le ore timbrate, più
   festività, ferie, permessi, malattia e mandata a casa confermati. Niente timbrature, niente
   paga: i giorni ancora da venire e i vuoti non confermati non sono pagati. La sezione

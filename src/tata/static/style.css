@@ -48,6 +48,9 @@ form.inline { display: inline-flex; gap: .5rem; flex-wrap: wrap; align-items: ce
 form.inline input { padding: .25rem; font: inherit; }
 .actions { display: flex; gap: .75rem; flex-wrap: wrap; align-items: center; }
 .actions form { margin: 0; }
+.auto { display: flex; gap: 1rem; flex-wrap: wrap; }
+.auto label { display: flex; gap: .35rem; align-items: center; }
+.auto input { width: auto; }
 .events { list-style: none; padding: 0; margin: 0; }
 .events li { display: flex; justify-content: space-between; gap: 1rem; padding: .35rem 0; border-bottom: 1px solid var(--line); }
 .events form { margin: 0; }

@@ -84,7 +84,7 @@ def test_punch_close_stores_its_extras_and_delete_removes_them(tmp_path: Path) -
     day = date(2026, 10, 13)
     opened = s.add_punch(day, 945, None, [])  # 15:45
     assert s.punches() == [opened]
-    closed = s.close_punch(opened.id, 1110, [span("18:00-18:30")])  # 18:30
+    closed = s.update_punch(opened.id, day, 945, 1110, [span("18:00-18:30")])  # 18:30
     assert s.punches() == [closed]
     assert closed.end == 1110
     [extra] = s.events()
@@ -93,7 +93,12 @@ def test_punch_close_stores_its_extras_and_delete_removes_them(tmp_path: Path) -
         span("18:00-18:30"),
         "timbratura",
     )
-    assert s.delete_punch(closed.id) == day
+    # Corrected to 16:00-18:15 the next day: the old EXTRA goes, the new one replaces it.
+    wed = date(2026, 10, 14)
+    fixed = s.update_punch(closed.id, wed, 960, 1095, [span("18:00-18:15")])
+    assert s.punches() == [fixed] and (fixed.day, fixed.start, fixed.end) == (wed, 960, 1095)
+    assert [(e.day, e.span) for e in s.events()] == [(wed, span("18:00-18:15"))]
+    assert s.delete_punch(closed.id) == wed
     assert s.punches() == []
     assert s.events() == []
 
@@ -126,7 +131,7 @@ def test_close_and_delete_punch_in_a_finalized_month_are_refused(tmp_path: Path)
     opened = s.add_punch(date(2026, 10, 13), 945, None, [])
     s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), None))
     with pytest.raises(ValueError, match="finalizzato"):
-        s.close_punch(opened.id, 1080, [])
+        s.update_punch(opened.id, opened.day, 945, 1080, [])
     with pytest.raises(ValueError, match="finalizzato"):
         s.delete_punch(opened.id)
     assert s.punches() == [opened]

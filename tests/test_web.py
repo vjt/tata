@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tata.festivita import festivita
-from tata.models import Mileage
+from tata.models import EventKind, Mileage
 from tata.presenza import Change, History, Seen
 from tata.store import Store
 from tata.web import Settings, create_app
@@ -776,27 +776,70 @@ def test_each_turno_carries_its_rimborso(tmp_path: Path) -> None:
     for inizio, fine in (("08:00", "08:45"), ("15:45", "16:30"), ("16:40", "18:00")):
         c.post("/r/1/timbrature", data={"giorno": "2026-10-13", "inizio": inizio, "fine": fine})
     page = c.get("/r/1/mese/2026/10").text
+    # Each row: hours first, the car, km only with her own car, no price (vjt 16/10).
+    assert "<b>45 min</b> · 13/10/2026 · 08:00-08:45 · auto propria, trasferta 12,00 km" in page
+    assert "<b>50 min</b> · 13/10/2026 · 16:40-18:00" not in page  # 16:40-18:00 = 80 min
+    assert "<b>1 h 20 min</b> · 13/10/2026 · 16:40-18:00</span>" in page  # same turno: no trip
+    assert page.count("auto propria, trasferta") == 2 and "5,36" not in page.split("Lavorato")[0]
     # 12 km x 0,4463 = 5,3556 -> 5,36 a turno; 2 turni = 24 km, 10,72 EUR.
-    assert page.count("trasferta 12,00 km, 5,36 €") == 2
     assert "Trasferte del mese: 2 turni, 24,00 km," in page and "rimborso 10,72 €" in page
     # Outside the lordo: netto + rimborso = da pagare.
     slip = page.split("Lavorato")[1]
     netto = slip.split('<td colspan="3">Netto</td><td>')[1].split(" €")[0]
     da_pagare = slip.split('<td colspan="3">Da pagare</td><td>')[1].split(" €")[0]
     assert italian(da_pagare) - italian(netto) == Decimal("10.72")
-    # The afternoon was done with the employer's car: no rimborso for it.
-    r = c.post("/r/1/turni/auto", data={"giorno": "2026-10-13", "mattina": "0", "datore": "1"})
-    assert r.status_code == 303
+    # Corrected with the employer's car: no rimborso for the afternoon, and no km shown.
+    [first_pm] = [
+        p for p in Store(tmp_path / "tata.sqlite").rapporto(1).punches() if p.start == 945
+    ]
+    form = {"id": str(first_pm.id), "giorno": "2026-10-13", "inizio": "15:45", "fine": "16:30"}
+    assert c.post("/r/1/timbrature", data={**form, "auto": "datore"}).status_code == 303
     page = c.get("/r/1/mese/2026/10").text
-    assert page.count("trasferta 12,00 km, 5,36 €") == 1
-    assert "auto del datore, niente trasferta" in page
+    assert "<b>45 min</b> · 13/10/2026 · 15:45-16:30 · auto del datore</span>" in page
     assert "Trasferte del mese: 1 turni, 12,00 km," in page and "rimborso 5,36 €" in page
+    assert "turni/auto" not in page  # no toggle any more
     # And back to hers.
-    c.post("/r/1/turni/auto", data={"giorno": "2026-10-13", "mattina": "0", "datore": "0"})
+    c.post("/r/1/timbrature", data={**form, "auto": "propria"})
     assert "rimborso 10,72 €" in c.get("/r/1/mese/2026/10").text
-    # Only the employer says whose car it was.
+
+
+def test_modifica_loads_the_row_and_saves_it_in_place(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 19, 0))
+    form = {"giorno": "2026-10-13", "inizio": "15:45", "fine": "18:30", "auto": "datore"}
+    c.post("/r/1/timbrature", data=form)
+    [p] = Store(tmp_path / "tata.sqlite").rapporto(1).punches()
+    page = c.get("/r/1/mese/2026/10").text
+    assert f'href="?modifica={p.id}#timbratura"' in page
+    form_html = c.get(f"/r/1/mese/2026/10?modifica={p.id}").text.split('id="timbratura"')[1]
+    form_html = form_html.split("</form>")[0]
+    assert f'name="id" value="{p.id}"' in form_html and 'value="2026-10-13"' in form_html
+    assert 'value="15:45"' in form_html and 'value="18:30"' in form_html
+    assert 'value="datore" checked' in form_html and "Salva modifica" in form_html
+    # Saved: the same punch, new times, its EXTRA (18:00-18:30) gone with the overrun.
+    edit = {"id": str(p.id), "giorno": "2026-10-13", "inizio": "15:45", "fine": "18:00"}
+    assert c.post("/r/1/timbrature", data=edit).status_code == 303
+    rs = Store(tmp_path / "tata.sqlite").rapporto(1)
+    assert [(q.id, q.end) for q in rs.punches()] == [(p.id, 18 * 60)]
+    assert [e for e in rs.events() if e.kind == EventKind.EXTRA] == []
+    assert c.get("/r/1/mese/2026/10?modifica=999").status_code == 404
+    # Not for the worker: she adds, she does not correct.
     w = with_worker(c, 1, WORKER)
-    assert w.post("/r/1/turni/auto", data={}).status_code == 403
+    assert w.post("/r/1/timbrature", data=edit).status_code == 403
+    assert "modifica" not in w.get("/r/1/mese/2026/10").text.split('id="cartellino"')[1]
+
+
+def test_the_car_is_declared_at_the_start_of_the_turno(tmp_path: Path) -> None:
+    c, clock = punching(tmp_path, rome(2026, 10, 13, 15, 44))
+    page = c.get("/r/1/timbra").text
+    assert 'value="propria" checked' in page and 'value="datore"' in page
+    assert c.post("/r/1/timbra/inizio", data={"auto": "datore"}).status_code == 303
+    clock.value = rome(2026, 10, 13, 18, 0)
+    c.post("/r/1/timbra/fine", data={"alle": ""})
+    assert "15:45-18:00 · auto del datore" not in c.get("/r/1/mese/2026/10").text
+    assert "15:44-18:00 · auto del datore" in c.get("/r/1/mese/2026/10").text
+    form = {"giorno": "2026-10-13", "inizio": "8:00", "fine": "8:45", "auto": "bici"}
+    assert c.post("/r/1/timbrature", data=form).status_code == 400
+    assert len(Store(tmp_path / "tata.sqlite").rapporto(1).punches()) == 1  # nothing written
 
 
 def italian(amount: str) -> Decimal:

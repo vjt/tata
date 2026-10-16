@@ -288,15 +288,23 @@ class RapportoStore:
             _insert_extras(db, self.id, new_id, day, extras)
         return draft.model_copy(update={"id": new_id})
 
-    def close_punch(self, punch_id: int, end: int, extras: list[Span]) -> Punch:
-        """Sets the exit time and stores the EXTRA events it implies, in one transaction."""
-        punch = self._punch(punch_id)
-        self._refuse_if_final(punch.day)
-        closed = Punch(id=punch.id, day=punch.day, start=punch.start, end=end)  # validates
+    def update_punch(
+        self, punch_id: int, day: date, start: int, end: int, extras: list[Span]
+    ) -> Punch:
+        """Closes or corrects a punch: replaces its times and the EXTRA events it implies, in
+        one transaction. Raises KeyError if there is no such punch."""
+        old = self._punch(punch_id)
+        self._refuse_if_final(old.day)
+        self._refuse_if_final(day)
+        new = Punch(id=punch_id, day=day, start=start, end=end)  # validates
         with closing(sqlite3.connect(self._path)) as db, db:
-            db.execute("UPDATE punch SET stop = ? WHERE id = ?", (end, punch_id))
-            _insert_extras(db, self.id, punch_id, punch.day, extras)
-        return closed
+            _delete_extras(db, punch_id)
+            db.execute(
+                "UPDATE punch SET day = ?, start = ?, stop = ? WHERE id = ?",
+                (day.isoformat(), start, end, punch_id),
+            )
+            _insert_extras(db, self.id, punch_id, day, extras)
+        return new
 
     def delete_punch(self, punch_id: int) -> date:
         """Deletes the punch and the EXTRA events it generated; returns its day."""

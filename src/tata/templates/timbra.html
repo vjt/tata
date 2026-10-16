@@ -20,10 +20,14 @@
     <input type="hidden" name="inizio" value="{{ proposal.span.start | ore }}">
     <input type="hidden" name="fine" value="{{ proposal.span.end | ore }}">
     <button class="big">Conferma turno {{ proposal.span }}</button>
+    {% include "_auto.html" %}
+    <button class="link" formaction="{{ base }}/timbra/inizio">oppure: inizio turno adesso</button>
   </form>
-  <form method="post" action="{{ base }}/timbra/inizio"><button class="link">oppure: inizio turno adesso</button></form>
 {% else %}
-  <form method="post" action="{{ base }}/timbra/inizio"><button class="big">Inizio turno</button></form>
+  <form method="post" action="{{ base }}/timbra/inizio">
+    <button class="big">Inizio turno</button>
+    {% include "_auto.html" %}
+  </form>
 {% endif %}
   <a class="hint" href="{{ base }}/mese/{{ today.year }}/{{ today.month }}?giorno={{ today.isoformat() }}#cartellino">registra a mano</a>
 </section>
