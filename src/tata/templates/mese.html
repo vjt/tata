@@ -62,7 +62,7 @@
     <li>
       <span>{{ e.day | dmy }} · {{ e.kind }}{% if e.span %} {{ e.span }}{% endif %}{% if e.note %} · {{ e.note }}{% endif %}</span>
       {% if employer and not final %}
-      <form method="post" action="{{ base }}/eventi/{{ e.id }}/elimina"><button class="link">elimina</button></form>
+      <form method="post" action="{{ base }}/eventi/{{ e.id }}/elimina" onsubmit="return confirm('Eliminare {{ e.kind }} del {{ e.day | dmy }}?')"><button class="link">elimina</button></form>
       {% endif %}
     </li>
   {% endfor %}
@@ -142,7 +142,7 @@
         {% if employer and not final %}
         <td class="actions">
           {% if p.end is not none %}<a class="icon" href="?modifica={{ p.id }}#timbratura" title="modifica" aria-label="modifica">✏️</a>{% endif %}
-          <form method="post" action="{{ base }}/timbrature/{{ p.id }}/elimina"><button class="icon" title="elimina" aria-label="elimina">❌</button></form>
+          <form method="post" action="{{ base }}/timbrature/{{ p.id }}/elimina" onsubmit="return confirm('Eliminare la timbratura del {{ p.day | dmy }}{% if p.end is not none %} {{ p.span() }}{% endif %}?')"><button class="icon" title="elimina" aria-label="elimina">❌</button></form>
         </td>
         {% endif %}
       </tr>

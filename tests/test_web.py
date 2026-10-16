@@ -823,6 +823,7 @@ def test_modifica_loads_the_row_and_saves_it_in_place(tmp_path: Path) -> None:
     page = c.get("/r/1/mese/2026/10").text
     assert f'href="?modifica={p.id}#timbratura" title="modifica" aria-label="modifica">✏️' in page
     assert 'aria-label="elimina">❌' in page
+    assert "return confirm('Eliminare la timbratura del 13/10/2026 15:45-18:30?')" in page
     form_html = c.get(f"/r/1/mese/2026/10?modifica={p.id}").text.split('id="timbratura"')[1]
     form_html = form_html.split("</form>")[0]
     assert f'name="id" value="{p.id}"' in form_html and 'value="2026-10-13"' in form_html
