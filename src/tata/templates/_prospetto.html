@@ -22,7 +22,7 @@
     <tr><td colspan="3">Cassa Colf a carico lavoratore ({{ slip.ore_retribuite | hm }} × {{ slip.cassa_colf.lavoratore | num }})</td><td>− {{ slip.trattenuta_cassa_colf | eur }}</td></tr>
     <tr class="total net"><td colspan="3">Netto</td><td>{{ slip.netto | eur }}</td></tr>
     {% if slip.rimborso %}
-    <tr><td colspan="3">{{ slip.rimborso.voce }}: {{ slip.rimborso.quantita | int }} {{ slip.rimborso.unita }} ({{ slip.rimborso.tariffa | eur }} a turno)</td><td>+ {{ slip.rimborso.importo | eur }}</td></tr>
+    <tr><td colspan="3">{{ slip.rimborso.voce }}: {{ slip.rimborso.quantita | num }} {{ slip.rimborso.unita }} a {{ slip.rimborso.tariffa | string | replace(".", ",") }} €/km, arrotondato per turno</td><td>+ {{ slip.rimborso.importo | eur }}</td></tr>
     <tr class="total net"><td colspan="3">Da pagare</td><td>{{ slip.da_pagare | eur }}</td></tr>
     {% endif %}
     <tr class="total"><td colspan="3">Lordo da pagare (lordo{% if slip.rimborso %} + rimborso{% endif %}, senza trattenute)</td><td>{{ slip.lordo_da_pagare | eur }}</td></tr>

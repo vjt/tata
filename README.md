@@ -71,7 +71,8 @@ Nella pagina del mese:
 - **Rimborso trasferte**: ogni turno timbrato (mattina o pomeriggio, al più due al giorno)
   porta il rimborso chilometrico dell'accompagnamento a scuola con l'auto della lavoratrice:
   km per turno × €/km delle tabelle ACI, da `TATA_RIMBORSO_KM` e `TATA_RIMBORSO_EURO_KM`
-  (entrambe o nessuna). Trasferta fuori comune, quindi non imponibile (art. 51 c.5 TUIR): sta
+  (entrambe o nessuna). I km di un singolo turno si correggono dal form ✏️ della riga
+  (sostituiscono quelli configurati). Trasferta fuori comune, quindi non imponibile (art. 51 c.5 TUIR): sta
   fuori dal lordo, dai contributi e dal TFR, e si aggiunge al netto nella riga *Da pagare*.
   L'auto si dichiara per turno, *auto propria* o *auto del datore* (che non rimborsa nulla):
   accanto al pulsante di *timbra*, a inizio turno, e nel form *Registra*; di default è

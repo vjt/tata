@@ -857,6 +857,47 @@ def test_each_turno_carries_its_rimborso(tmp_path: Path) -> None:
     assert "rimborso 10,72 €" in c.get("/r/1/mese/2026/10").text
 
 
+def test_modifica_sets_the_km_of_the_turno(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 19, 0))
+    for inizio, fine in (("08:00", "08:45"), ("15:45", "16:30")):
+        c.post(
+            "/r/1/registra",
+            data={"tipo": "lavoro", "dal": "2026-10-13", "inizio": inizio, "fine": fine},
+        )
+    morning = min(Store(tmp_path / "tata.sqlite").rapporto(1).punches(), key=lambda p: p.start)
+    form_html = c.get(f"/r/1/mese/2026/10?modifica={morning.id}").text.split('id="registra"')[1]
+    assert 'name="km" min="0" step="0.1" required value="12"' in form_html  # the configured km
+    assert 'name="km"' not in c.get("/r/1/mese/2026/10").text  # only when correcting a row
+    edit = {
+        "id": str(morning.id),
+        "tipo": "lavoro",
+        "dal": "2026-10-13",
+        "inizio": "08:00",
+        "fine": "08:45",
+        "km": "30",
+    }
+    assert c.post("/r/1/registra", data=edit).status_code == 303
+    page = c.get("/r/1/mese/2026/10").text
+    # One km for the turno, replacing the configured 12 (vjt 16/10): 30 x 0,4463 = 13,389
+    # -> 13,39; the afternoon keeps 12 km, 5,36. 13,39 + 5,36 = 18,75 on 42 km.
+    assert [row[5] for row in cartellino(page)] == ["13,39 €", "5,36 €"]
+    assert "Trasferte del mese: 2 turni, 42,00 km," in page and "rimborso 18,75 €" in page
+    assert "42,00 km a 0,4463 €/km" in page
+    form_html = c.get(f"/r/1/mese/2026/10?modifica={morning.id}").text.split('id="registra"')[1]
+    assert 'required value="30"' in form_html
+    # Bad km: refused, nothing changed.
+    assert c.post("/r/1/registra", data={**edit, "km": "-3"}).status_code == 400
+    assert "rimborso 18,75 €" in c.get("/r/1/mese/2026/10").text
+    # Back to 12: it follows the configuration again.
+    c.post("/r/1/registra", data={**edit, "km": "12"})
+    assert Store(tmp_path / "tata.sqlite").rapporto(1).turno_km() == {}
+    # With the employer's car the turno pays nothing, km or no km.
+    c.post("/r/1/registra", data={**edit, "km": "30", "auto": "datore"})
+    page = c.get("/r/1/mese/2026/10").text
+    assert [row[5] for row in cartellino(page)] == ["", "5,36 €"]
+    assert "rimborso 5,36 €" in page
+
+
 def test_modifica_loads_the_row_and_saves_it_in_place(tmp_path: Path) -> None:
     c, _ = punching(tmp_path, rome(2026, 10, 13, 19, 0))
     form = {

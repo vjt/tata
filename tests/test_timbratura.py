@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -197,13 +198,18 @@ def test_a_turno_is_a_half_day_with_a_closed_punch() -> None:
         Punch(id=4, day=wed, start=480, end=None),  # open: not yet a trip
         Punch(id=5, day=date(2026, 11, 2), start=480, end=525),  # another month
     ]
-    assert [(t.day, t.morning, t.punch_id, t.own_car) for t in turni(punches, set(), 2026, 10)] == [
+    assert [
+        (t.day, t.morning, t.punch_id, t.own_car) for t in turni(punches, set(), {}, 2026, 10)
+    ] == [
         (TUE, True, 1, True),
         (TUE, False, 2, True),
     ]
     # The afternoon done with the employer's car: still a turno, no longer hers.
-    by_car = turni(punches, {(TUE, False)}, 2026, 10)
+    by_car = turni(punches, {(TUE, False)}, {}, 2026, 10)
     assert [t.own_car for t in by_car] == [True, False]
+    # Its km corrected: carried by the turno, None (the configured km) for the others.
+    by_km = turni(punches, set(), {(TUE, False): Decimal(30)}, 2026, 10)
+    assert [t.km for t in by_km] == [None, Decimal(30)]
 
 
 def test_the_rest_of_a_replaced_span_is_still_unpaid() -> None:

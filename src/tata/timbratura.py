@@ -1,6 +1,7 @@
 """Cartellino: what the punches imply for payroll, and what the button proposes."""
 
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from enum import StrEnum
 from itertools import pairwise
 
@@ -47,21 +48,28 @@ class Turno(Frozen):
     morning: bool
     punch_id: int  # the punch that opened it
     own_car: bool  # hers by default; with the employer's car there is no rimborso
+    km: Decimal | None  # None: the configured km per turno
 
 
 def turni(
-    punches: list[Punch], employer_car: set[tuple[date, bool]], year: int, month: int
+    punches: list[Punch],
+    employer_car: set[tuple[date, bool]],
+    km: dict[tuple[date, bool], Decimal],
+    year: int,
+    month: int,
 ) -> list[Turno]:
     """The month's turni: at most a morning and an afternoon a day, however many punches.
 
-    `employer_car`: the (day, morning) turni done with the employer's car.
+    `employer_car`: the (day, morning) turni done with the employer's car; `km`: the turni
+    whose km differ from the configured ones.
     """
     result: dict[tuple[date, bool], Turno] = {}
     for p in sorted(punches, key=lambda p: (p.day, p.start)):
         if p.end is not None and (p.day.year, p.day.month) == (year, month):
             key = (p.day, p.start < NOON)
             own = key not in employer_car
-            result.setdefault(key, Turno(day=p.day, morning=key[1], punch_id=p.id, own_car=own))
+            turno = Turno(day=p.day, morning=key[1], punch_id=p.id, own_car=own, km=km.get(key))
+            result.setdefault(key, turno)
     return list(result.values())
 
 

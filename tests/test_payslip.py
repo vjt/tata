@@ -270,11 +270,14 @@ def test_mora_pays_exactly_as_the_schedule() -> None:
 
 def test_rimborso_is_paid_on_top_of_the_netto_and_nothing_else() -> None:
     worker = standard_contract(date(2026, 10, 12))
-    rimborso = rimborso_line(Mileage(km_turno=Decimal(12), euro_km=Decimal("0.4463")), 3)
+    mileage = Mileage(km_turno=Decimal(12), euro_km=Decimal("0.4463"))
+    rimborso = rimborso_line(mileage, [None, None, Decimal(30)])
     assert rimborso is not None
-    # 12 km x 0,4463 = 5,3556 -> 5,36 a turno ; x 3 = 16,08
-    assert rimborso.tariffa == Decimal("5.36")
-    assert rimborso.importo == Decimal("16.08")
+    # Two turni at the configured 12 km: 12 x 0,4463 = 5,3556 -> 5,36 each; one corrected to
+    # 30 km: 13,389 -> 13,39. 5,36 + 5,36 + 13,39 = 24,11 (rounded per turno, as on the rows);
+    # 12 + 12 + 30 = 54 km.
+    assert (rimborso.quantita, rimborso.unita, rimborso.tariffa) == (54, "km", Decimal("0.4463"))
+    assert rimborso.importo == Decimal("24.11")
     plain = compute_payslip(worker, [], 2026, 10, rates_2026(), None)
     slip = compute_payslip(worker, [], 2026, 10, rates_2026(), rimborso)
     # Not income (art. 51 c.5 TUIR, trasferta fuori comune): lordo, INPS, TFR, netto unchanged.
@@ -284,13 +287,13 @@ def test_rimborso_is_paid_on_top_of_the_netto_and_nothing_else() -> None:
         plain.imponibile_tfr,
         plain.netto,
     )
-    assert slip.da_pagare == plain.netto + Decimal("16.08")
-    assert slip.lordo_da_pagare == plain.lordo + Decimal("16.08")
+    assert slip.da_pagare == plain.netto + Decimal("24.11")
+    assert slip.lordo_da_pagare == plain.lordo + Decimal("24.11")
     assert plain.lordo_da_pagare == plain.lordo
     assert plain.da_pagare == plain.netto
 
 
 def test_no_turni_no_rimborso() -> None:
-    assert rimborso_line(Mileage(km_turno=Decimal(12), euro_km=Decimal("0.4463")), 0) is None
+    assert rimborso_line(Mileage(km_turno=Decimal(12), euro_km=Decimal("0.4463")), []) is None
     with pytest.raises(ValueError, match="positivi"):
         Mileage(km_turno=Decimal(0), euro_km=Decimal("0.4463"))

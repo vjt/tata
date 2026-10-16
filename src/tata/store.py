@@ -75,6 +75,13 @@ CREATE TABLE IF NOT EXISTS employer_car (
     morning INTEGER NOT NULL,
     PRIMARY KEY (contract_id, day, morning)
 );
+CREATE TABLE IF NOT EXISTS turno_km (
+    contract_id INTEGER NOT NULL REFERENCES contract (id),
+    day TEXT NOT NULL,
+    morning INTEGER NOT NULL,
+    km TEXT NOT NULL,
+    PRIMARY KEY (contract_id, day, morning)
+);
 CREATE UNIQUE INDEX IF NOT EXISTS one_open_punch ON punch (contract_id) WHERE stop IS NULL;
 CREATE TABLE IF NOT EXISTS session (
     token_hash TEXT PRIMARY KEY,
@@ -84,8 +91,8 @@ CREATE TABLE IF NOT EXISTS session (
 );
 """
 # PRAGMA user_version. 1: rapporti. 2: login sessions (a new table: the schema adds it).
-# 3: worker login names.
-VERSION = 3
+# 3: worker login names. 4: km per turno (a new table: the schema adds it).
+VERSION = 4
 
 # Run on a database of version 1 or later, before the schema, to reach the given version.
 UPGRADES = {
@@ -379,6 +386,26 @@ class RapportoStore:
                     "DELETE FROM employer_car WHERE contract_id = ? AND day = ? AND morning = ?",
                     key,
                 )
+
+    # ---- km of a turno other than the configured km per turno
+
+    def turno_km(self) -> dict[tuple[date, bool], Decimal]:
+        """(day, morning) -> km, for the turni whose km the employer corrected."""
+        rows = self._read("SELECT day, morning, km FROM turno_km WHERE contract_id = ?", (self.id,))
+        return {(date.fromisoformat(str(d)), bool(m)): Decimal(str(km)) for d, m, km in rows}
+
+    def set_turno_km(self, day: date, morning: bool, km: Decimal | None) -> None:
+        """Sets a turno's km; None: back to the configured km per turno."""
+        self._refuse_if_final(day)
+        if km is not None and (not km.is_finite() or km < 0):
+            raise ValueError(f"km del turno non validi: {km}")
+        key = (self.id, day.isoformat(), int(morning))
+        with closing(sqlite3.connect(self._path)) as db, db:
+            db.execute(
+                "DELETE FROM turno_km WHERE contract_id = ? AND day = ? AND morning = ?", key
+            )
+            if km is not None:
+                db.execute("INSERT INTO turno_km VALUES (?, ?, ?, ?)", (*key, str(km)))
 
     # ---- INPS payments
 

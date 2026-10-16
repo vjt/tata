@@ -259,22 +259,26 @@ def time_cost(oraria: Decimal, minutes: int) -> Decimal:
     return euro(oraria * minutes / 60)
 
 
-def trip_cost(mileage: Mileage) -> Decimal:
-    """One turno's rimborso: km x €/km, rounded once."""
-    return euro(mileage.km_turno * mileage.euro_km)
+def trip_cost(mileage: Mileage, km: Decimal | None) -> Decimal:
+    """One turno's rimborso: its km (None: the configured km per turno) x €/km, rounded once."""
+    return euro(trip_km(mileage, km) * mileage.euro_km)
 
 
-def rimborso_line(mileage: Mileage, turni: int) -> Line | None:
-    """Rimborso trasferte for `turni` trips: km x €/km per turno, rounded once (spec)."""
-    if not turni:
+def trip_km(mileage: Mileage, km: Decimal | None) -> Decimal:
+    return mileage.km_turno if km is None else km
+
+
+def rimborso_line(mileage: Mileage, trips: list[Decimal | None]) -> Line | None:
+    """Rimborso trasferte for the turni with her car, by their km (None: the configured km):
+    each turno rounded once, the month their sum (spec), as on the cartellino rows."""
+    if not trips:
         return None
-    per_turno = trip_cost(mileage)
     return Line(
         voce="Rimborso trasferte (non imponibile)",
-        quantita=Decimal(turni),
-        unita="turni",
-        tariffa=per_turno,
-        importo=per_turno * turni,
+        quantita=sum((trip_km(mileage, km) for km in trips), Decimal(0)),
+        unita="km",
+        tariffa=mileage.euro_km,
+        importo=sum((trip_cost(mileage, km) for km in trips), Decimal(0)),
     )
 
 

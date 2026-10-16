@@ -69,7 +69,8 @@ Calc modules never touch the DB; the store never computes.
   not income (art. 51 c.5 TUIR): outside lordo, INPS, TFR, attestazione; netto stays lordo −
   trattenute, `da_pagare` = netto + rimborso. Her car by default; a radio (auto propria / auto
   del datore) on the timbra button and on the punch form declares it per turno
-  (`employer_car`): the employer's pays nothing.
+  (`employer_car`): the employer's pays nothing. A turno's km are the configured ones unless the
+  employer corrects them on the row's ✏️ form (`turno_km`, replacing, not adding).
 - **Wifi presence proposes, never records.** `/presenza` reads the worker's phone tracker from
   Home Assistant (eve: `not_home` comes 120 s after the last sighting) and proposes punches by
   shift: morning = first arrival 07:30–08:15 to the last departure before noon, + 30 min only if

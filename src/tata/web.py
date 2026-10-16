@@ -48,7 +48,14 @@ from tata.models import (
     Session,
     Span,
 )
-from tata.payslip import Payslip, compute_payslip, rimborso_line, time_cost, trip_cost
+from tata.payslip import (
+    Payslip,
+    compute_payslip,
+    rimborso_line,
+    time_cost,
+    trip_cost,
+    trip_km,
+)
 from tata.pdf import render_pdf
 from tata.presenza import History, PresenceDay, presence_days
 from tata.rates import RatesBook
@@ -374,8 +381,9 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             events = paid_events(rs, contract, year, month)
             rimborso = None
             if settings.mileage is not None:
-                month_turni = turni(rs.punches(), rs.employer_car(), year, month)
-                rimborso = rimborso_line(settings.mileage, sum(t.own_car for t in month_turni))
+                month_turni = turni(rs.punches(), rs.employer_car(), rs.turno_km(), year, month)
+                trips = [t.km for t in month_turni if t.own_car]
+                rimborso = rimborso_line(settings.mileage, trips)
             return compute_payslip(contract, events, year, month, book.get(year), rimborso)
 
         return get
@@ -586,6 +594,8 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             if modifica and not request.state.worker
             else None
         )
+        km = rs.turno_km()
+        month_turni = turni(rs.punches(), rs.employer_car(), km, year, month)
         wifi = (
             WifiBox(days=[], error="")
             if request.state.worker
@@ -606,11 +616,15 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "kinds": list(EventKind),
                 "slip": slip,
                 "planned": planned,
-                "trips": {
-                    t.punch_id: t for t in turni(rs.punches(), rs.employer_car(), year, month)
+                "trips": {t.punch_id: t for t in month_turni},
+                "trip_cost": {
+                    t.punch_id: trip_cost(settings.mileage, t.km)
+                    for t in month_turni
+                    if t.own_car and settings.mileage
                 },
-                "mileage": settings.mileage,
-                "trip_cost": trip_cost(settings.mileage) if settings.mileage else None,
+                "km": None
+                if editing is None or settings.mileage is None
+                else trip_km(settings.mileage, km.get((editing.day, editing.start < NOON))),
                 "time_cost": {
                     p.id: time_cost(slip.paga.oraria, p.end - p.start)
                     for p in rs.punches()
@@ -695,8 +709,12 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             raise HTTPException(403)
         punch_id = int(str(edited)) if edited else 0
         car = _employer_car(form)
+        km = _km(form) if edited else None
         save_punch(rs, contract, Punch(id=punch_id, day=day, start=s.start, end=s.end))
         declare_car(rs, day, s.start, car)
+        if km is not None and settings.mileage is not None:
+            same = km == settings.mileage.km_turno  # follows the configuration
+            rs.set_turno_km(day, s.start < NOON, None if same else km)
         back = form.get("torna")
         if isinstance(back, str) and RETURN_TO.fullmatch(back) and back.startswith(f"/r/{cid}/"):
             return RedirectResponse(back, status_code=303)
@@ -952,6 +970,20 @@ def _employer_car(form: FormData) -> bool | None:
     if auto not in ("propria", "datore"):
         raise ValueError(f"auto sconosciuta: {auto}")
     return auto == "datore"
+
+
+def _km(form: FormData) -> Decimal | None:
+    """The km of the turno, from the Modifica form; None: not given (no rimborso set up)."""
+    raw = form.get("km")
+    if raw is None or raw == "":
+        return None
+    try:
+        km = Decimal(str(raw).replace(",", "."))
+    except InvalidOperation as e:
+        raise ValueError(f"km non validi: {raw}") from e
+    if not km.is_finite() or km < 0:
+        raise ValueError(f"km non validi: {raw}")
+    return km
 
 
 def _fmt_ore(minutes: int) -> str:

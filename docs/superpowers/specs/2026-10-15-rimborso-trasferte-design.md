@@ -13,7 +13,11 @@ is the default). Home and school are in different comuni.
 - **Km per turno** (andata + ritorno) and **€/km** are configuration, not code:
   `TATA_RIMBORSO_KM` and `TATA_RIMBORSO_EURO_KM`, both or neither (neither: no
   reimbursement). They are runtime data in `.env`: the route length describes the household.
-- **Amount per turno** = km × €/km, rounded to the cent once; the month = turni × that amount.
+- **Km of a turno**: the configured km by default; the employer corrects them on the row's
+  ✏️ form (one field replacing the default, not extra km on top; vjt 16/10), stored per turno
+  (`turno_km`). Back to the configured value, the correction is dropped.
+- **Amount per turno** = its km × €/km, rounded to the cent once; the month = the sum, as on
+  the cartellino rows. The prospetto line shows the month's km and the €/km.
   The €/km comes from the ACI tables (costo chilometrico for the worker's car model).
 
 ## Tax and contributions

@@ -102,7 +102,7 @@
         <td>{% if p.end is none %}dalle {{ p.start | ore }} (aperta){% else %}{{ p.span() }}{% endif %}</td>
         <td>{% if t %}{% if t.own_car %}auto propria{% else %}auto del datore{% endif %}{% endif %}</td>
         <td class="num">{% if p.id in time_cost %}{{ time_cost[p.id] | eur }}{% endif %}</td>
-        <td class="num">{% if t and t.own_car and trip_cost %}{{ trip_cost | eur }}{% endif %}</td>
+        <td class="num">{% if p.id in trip_cost %}{{ trip_cost[p.id] | eur }}{% endif %}</td>
         {% if employer and not final %}
         <td class="actions">
           {% if p.end is not none %}<a class="icon" href="?modifica={{ p.id }}#registra" title="modifica" aria-label="modifica">✏️</a>{% endif %}
@@ -115,7 +115,7 @@
   </table>
   </div>
   {% if slip.rimborso %}
-  <p>Trasferte del mese: {{ slip.rimborso.quantita | int }} turni{% if mileage %}, {{ (slip.rimborso.quantita * mileage.km_turno) | num }} km{% endif %},
+  <p>Trasferte del mese: {{ trip_cost | length }} turni, {{ slip.rimborso.quantita | num }} km,
     rimborso {{ slip.rimborso.importo | eur }} (non imponibile).</p>
   {% endif %}
   {% endif %}
@@ -156,6 +156,7 @@
     <label>Alle <input name="fine" placeholder="hh:mm (24:00 per mezzanotte)" pattern="\d{1,2}:\d{2}" value="{{ editing.end | ore if editing }}"></label>
   </div>
   <div data-solo="lavoro">{% include "_auto.html" %}</div>
+  {% if km is not none %}<label>Km del turno, andata e ritorno <input type="number" name="km" min="0" step="0.1" required value="{{ km }}"></label>{% endif %}
   {% if employer and not editing %}
   <p class="hint" data-solo="eventi">Ferie e malattia: giornate intere (anche un intervallo di date). Permessi e assenze:
     giornata intera o un orario. Extra e mora (mandata a casa, pagata): sempre un orario, un giorno alla volta.</p>

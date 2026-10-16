@@ -186,6 +186,23 @@ def test_employer_car_round_trip_and_finalized_month(tmp_path: Path) -> None:
         s.set_employer_car(tue, True, True)
 
 
+def test_turno_km_round_trip_and_finalized_month(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    tue = date(2026, 10, 13)
+    s.set_turno_km(tue, True, Decimal("30.5"))
+    s.set_turno_km(tue, True, Decimal(31))  # replaced
+    s.set_turno_km(tue, False, Decimal(0))  # no trip at all is a value too
+    assert s.turno_km() == {(tue, True): Decimal(31), (tue, False): Decimal(0)}
+    s.set_turno_km(tue, False, None)  # back to the configured km
+    assert s.turno_km() == {(tue, True): Decimal(31)}
+    with pytest.raises(ValueError, match="km"):
+        s.set_turno_km(tue, True, Decimal(-1))
+    worker = standard_contract(date(2026, 10, 12))
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), None))
+    with pytest.raises(ValueError, match="finalizzato"):
+        s.set_turno_km(tue, True, None)
+
+
 def test_rapporti_are_isolated_and_may_overlap(tmp_path: Path) -> None:
     root = Store(tmp_path / "tata.sqlite")
     colf = root.rapporto(root.add_rapporto(standard_contract(date(2026, 10, 12))))
