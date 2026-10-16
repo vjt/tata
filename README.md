@@ -87,7 +87,8 @@ Nella pagina del mese:
 **Presenza dal wifi** (facoltativa): la pagina *presenza* del rapporto legge da Home Assistant la storia del
 `device_tracker` del telefono della lavoratrice (ad esempio quello di
 eve/openwrt-presence, che segna `not_home` 120 secondi dopo l'ultimo
-aggancio) e propone le timbrature per turni:
+aggancio) e propone le timbrature per turni (quelle che nessuna timbratura copre ancora
+sono anche nella pagina del mese, con il loro *registra*):
 
 - **mattina**: dal primo arrivo tra le 7:30 e le 8:15 all'ultima uscita prima di mezzogiorno,
   + 30 minuti se quell'uscita è entro le 8:30 (il tragitto per portare i bambini a scuola);

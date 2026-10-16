@@ -72,7 +72,8 @@ Calc modules never touch the DB; the store never computes.
   shift: morning = first arrival 07:30–08:15 to the last departure before noon, + 30 min only if
   that is by 08:30; afternoon = 15:45 (or the earlier arrival) to the last departure. Moves in
   between are ignored; exceptions are not rules: a day that doesn't fit is flagged anomalous.
-  Each is confirmed through the ordinary punch path. Restart blips (`unavailable`) are not
+  Each is confirmed through the ordinary punch path; the month page lists those no punch
+  overlaps yet (and survives HA being down). Restart blips (`unavailable`) are not
   departures; a stay with an unknown arrival or end is never proposed.
 - **Validate on write.** Events and contract changes are checked against the calculators before
   they are stored; a stored inconsistency would brick every page that sums the year.

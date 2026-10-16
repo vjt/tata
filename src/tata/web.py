@@ -49,7 +49,7 @@ from tata.models import (
 )
 from tata.payslip import Payslip, compute_payslip, rimborso_line, trip_cost
 from tata.pdf import render_pdf
-from tata.presenza import History, presence_days
+from tata.presenza import History, PresenceDay, presence_days
 from tata.rates import RatesBook
 from tata.store import RapportoStore, Store
 from tata.timbratura import (
@@ -83,7 +83,7 @@ Clock = Callable[[], datetime]
 PresenceSource = Callable[[str, datetime, datetime], History]
 HA_VARS = ("TATA_HA_URL", "TATA_HA_TOKEN")
 MILEAGE_VARS = ("TATA_RIMBORSO_KM", "TATA_RIMBORSO_EURO_KM")
-RETURN_TO = re.compile(r"/r/\d+/presenza/\d{4}/\d{1,2}")
+RETURN_TO = re.compile(r"/r/\d+/(presenza|mese)/\d{4}/\d{1,2}")
 SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
 COOKIE = "tata_sessione"
 SESSION = timedelta(days=90)  # the PWA on her phone should not ask every week
@@ -98,6 +98,26 @@ def worker_routes(cid: int) -> dict[str, re.Pattern[str]]:
                           rf"(/prospetto\.pdf)?"),
         "POST": re.compile(rf"/logout|{base}/timbra/(inizio|fine)|{base}/timbrature"),
     }  # fmt: skip
+
+
+class WifiBox(Frozen):
+    """The month page's wifi proposals still to record, or why there are none to show."""
+
+    days: list[PresenceDay]
+    error: str
+
+
+def closed_punches(rs: RapportoStore, year: int, month: int) -> list[Punch]:
+    return [
+        p for p in rs.punches() if (p.day.year, p.day.month) == (year, month) and p.end is not None
+    ]
+
+
+def covered(day: date, proposal: Span, punches: list[Punch]) -> bool:
+    """A punch that day overlaps the proposal: recorded, perhaps with corrected times."""
+    return any(
+        p.day == day and p.start < proposal.end and proposal.start < p.span().end for p in punches
+    )
 
 
 def hash_password(password: str) -> str:
@@ -569,6 +589,9 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "trip_cost": trip_cost(settings.mileage) if settings.mileage else None,
                 "punches": [p for p in rs.punches() if (p.day.year, p.day.month) == (year, month)],
                 "pending": pending(rs, contract, year, month),
+                "wifi": wifi_unrecorded(cid, rs, year, month)
+                if not request.state.worker
+                else WifiBox(days=[], error=""),
                 "final": final,
                 "tfr": tfr(contract, rs.advances(), year, month, source(rs, contract), book),
                 "prev": f"/r/{cid}/mese/{prev_y}/{prev_m}",
@@ -645,30 +668,56 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         moment = now()
         return RedirectResponse(f"/r/{cid}/presenza/{moment.year}/{moment.month}", status_code=303)
 
-    @app.get("/r/{cid}/presenza/{year}/{month}", response_class=HTMLResponse)
-    def presence_page(request: Request, cid: int, year: int, month: int) -> HTMLResponse:
-        """Wifi sessions and the punches they suggest; the employer confirms each one."""
-        rs = store.rapporto(cid)
-        contract = rs.contract()
+    def wifi_days(cid: int, year: int, month: int, moment: datetime) -> list[PresenceDay]:
+        """The days of the month, up to now, the worker's phone was seen on the wifi.
+        ValueError if wifi presence is not set up; URLError/TimeoutError if HA is down."""
         entity = next(r.ha_entity for r in store.rapporti() if r.id == cid)
         if presence is None:
             raise ValueError(f"presenza wifi non configurata: imposta {', '.join(HA_VARS)}")
         if not entity:
             raise ValueError("presenza wifi: indica nel contratto il tracker del telefono")
-        moment = now()
         first = date(year, month, 1)
         last = min(date(year, month, calendar.monthrange(year, month)[1]), moment.date())
-        days = []
-        if first <= last:
-            start = datetime.combine(first, time(0), ROME)
-            end = min(moment, datetime.combine(last + timedelta(days=1), time(0), ROME))
-            history = presence(entity, start, end)
-            days = [d for d in presence_days(history, first, last) if d.sessions]
-        punches = [
-            p
-            for p in rs.punches()
-            if (p.day.year, p.day.month) == (year, month) and p.end is not None
-        ]
+        if first > last:
+            return []
+        start = datetime.combine(first, time(0), ROME)
+        end = min(moment, datetime.combine(last + timedelta(days=1), time(0), ROME))
+        history = presence(entity, start, end)
+        return [d for d in presence_days(history, first, last) if d.sessions]
+
+    def wifi_unrecorded(cid: int, rs: RapportoStore, year: int, month: int) -> WifiBox:
+        """For the month page: proposals no punch covers yet, confirmable now, and anomalous
+        days with no punch at all. Never breaks the page: HA down is said in the box."""
+        rapporto = next(r for r in store.rapporti() if r.id == cid)
+        if presence is None or not rapporto.ha_entity:
+            return WifiBox(days=[], error="")
+        moment = now()
+        try:
+            days = wifi_days(cid, year, month, moment)
+        except (URLError, TimeoutError) as e:
+            return WifiBox(days=[], error=f"Home Assistant non raggiungibile: {e}")
+        punches = closed_punches(rs, year, month)
+        todo: list[PresenceDay] = []
+        for d in days:
+            ready = [
+                s
+                for s in d.proposals
+                if not covered(d.day, s, punches)
+                and (d.day < moment.date() or s.end <= minute_of(moment))
+            ]
+            stray = d.anomalies if not any(p.day == d.day for p in punches) else []
+            if ready or stray:
+                todo.append(d.model_copy(update={"proposals": ready, "anomalies": stray}))
+        return WifiBox(days=todo, error="")
+
+    @app.get("/r/{cid}/presenza/{year}/{month}", response_class=HTMLResponse)
+    def presence_page(request: Request, cid: int, year: int, month: int) -> HTMLResponse:
+        """Wifi sessions and the punches they suggest; the employer confirms each one."""
+        rs = store.rapporto(cid)
+        contract = rs.contract()
+        moment = now()
+        days = wifi_days(cid, year, month, moment)
+        punches = closed_punches(rs, year, month)
         weeks: dict[date, int] = {}
         for p in punches:
             monday = p.day - timedelta(days=p.day.weekday())
@@ -682,7 +731,9 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "month": month,
                 "mese": MESI[month],
                 "days": days,
-                "recorded": {(p.day, p.span()) for p in punches},
+                "recorded": {
+                    (d.day, s) for d in days for s in d.proposals if covered(d.day, s, punches)
+                },
                 "today": moment.date(),
                 "minute": minute_of(moment),
                 "weeks": sorted(weeks.items()),

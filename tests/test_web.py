@@ -810,3 +810,27 @@ def test_payslip_hours_are_shown_as_hours_and_minutes(tmp_path: Path) -> None:
     page = c.get("/r/1/mese/2026/10").text.split("Lavorato")[1]
     assert "<td>Ore ordinarie</td><td>1 h 37 min</td>" in page
     assert "Contributi INPS a carico lavoratore (1 h 37 min " in page
+
+
+def test_month_page_offers_the_unrecorded_wifi_proposals(tmp_path: Path) -> None:
+    ha = FakeHomeAssistant(A_DAY)
+    c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), ha)
+    box = c.get("/r/1/mese/2026/10").text.split('id="wifi"')[1].split("</section>")[0]
+    assert "registra 07:55-08:42" in box and "registra 15:45-18:03" in box
+    # Recorded from the month page, back to it.
+    form = {"giorno": "2026-10-15", "inizio": "7:55", "fine": "8:42", "torna": "/r/1/mese/2026/10"}
+    assert c.post("/r/1/timbrature", data=form).headers["location"] == "/r/1/mese/2026/10"
+    # Afternoon recorded by hand with other times: the overlap counts as recorded.
+    form = {"giorno": "2026-10-15", "inizio": "16:00", "fine": "18:00"}
+    assert c.post("/r/1/timbrature", data=form).status_code == 303
+    assert 'id="wifi"' not in c.get("/r/1/mese/2026/10").text
+    # The worker sees no box, and her page never asks Home Assistant.
+    asked = len(ha.asked)
+    assert 'id="wifi"' not in with_worker(c, 1, WORKER).get("/r/1/mese/2026/10").text
+    assert len(ha.asked) == asked
+
+
+def test_month_page_survives_home_assistant_down(tmp_path: Path) -> None:
+    c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), FakeHomeAssistant(None))
+    r = c.get("/r/1/mese/2026/10")
+    assert r.status_code == 200 and "Home Assistant non raggiungibile" in r.text

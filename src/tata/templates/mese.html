@@ -96,6 +96,33 @@
 </section>
 {% endif %}
 
+{% if wifi.days or wifi.error %}
+<section class="card error" id="wifi">
+  <h2>Dal wifi, da registrare</h2>
+  {% if wifi.error %}<p>{{ wifi.error }}</p>{% endif %}
+  <ul class="events">
+  {% for d in wifi.days %}
+    <li>
+      <span>{{ d.day | dmy }}{% if d.anomalies %} · <strong>da controllare:</strong> {{ d.anomalies | join(", ") }}{% endif %}</span>
+      <span class="actions">
+      {% for p in d.proposals %}
+        <form method="post" action="{{ base }}/timbrature">
+          <input type="hidden" name="giorno" value="{{ d.day.isoformat() }}">
+          <input type="hidden" name="inizio" value="{{ p.start | ore }}">
+          <input type="hidden" name="fine" value="{{ p.end | ore }}">
+          <input type="hidden" name="torna" value="{{ base }}/mese/{{ year }}/{{ month }}">
+          <button class="small">registra {{ p }}</button>
+        </form>
+      {% else %}
+        <a href="{{ base }}/presenza/{{ year }}/{{ month }}">da registrare a mano</a>
+      {% endfor %}
+      </span>
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
 <section class="card" id="cartellino">
   <h2>Cartellino</h2>
   {% if punches %}
