@@ -154,11 +154,12 @@ docker compose up -d --build          # production (needs .env, see .env.example
   Commit message via a temp file written with the Write tool, `git commit -F`.
 - Docs updated in the same commit as the change.
 - Don't overengineer: "add X" means X. If a change touches >10 files unexpectedly, stop and ask.
-- Never touch other repos (the cert pusher in /srv/ca is read-only from here).
+- Never touch other repos.
 
 ## Deploy
 
-Docker container on the LAN macvlan with its own IP, listening on 443 directly. TLS cert/key
-from the local step-ca, written into `${TATA_CERTS}` by the cert pusher's `DockerDeployer`,
-which then `RESTART`s the container (uvicorn does not reload certs on SIGHUP). No Let's Encrypt.
-Details in README.md § Deploy.
+Docker container on the LAN macvlan with its own IP, listening on 443 directly as
+`${TATA_DOMAIN}` (resolved by the LAN DNS only, no public record). `entrypoint.sh` gets a
+Let's Encrypt cert with acme.sh (DNS-01 on Cloudflare, state in `${TATA_ACME}`) and checks
+renewal daily; uvicorn does not reload certs, so a renewal stops it and `restart:
+unless-stopped` brings it back. Details in README.md § Installazione.

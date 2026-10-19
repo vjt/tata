@@ -119,8 +119,7 @@ richiede un'informativa scritta.
 schermo intero (`static/manifest.webmanifest`, nessun service worker). `/static` e la pagina di
 accesso sono pubblici, tutto il resto chiede di entrare.
 
-**Da verificare** sul dispositivo: il telefono deve fidarsi della radice di step-ca, altrimenti
-niente installazione né HTTPS valido; tata è raggiungibile solo dalla LAN (da fuori, VPN); la
+**Da verificare** sul dispositivo: tata è raggiungibile solo dalla LAN (da fuori, VPN); la
 sessione dura 90 giorni, quindi la PWA non chiede la password a ogni avvio.
 
 ## Privacy: codice pubblico, dati mai
@@ -149,26 +148,17 @@ solo modelli Pydantic, calcoli senza I/O) sono in [CLAUDE.md](CLAUDE.md) e le fa
 Un container con un proprio indirizzo sulla LAN, che termina il TLS da sé sulla porta 443.
 
 ```bash
-cp .env.example .env     # cartella dati, cartella certificati, rete, IP, password
-mkdir -p /srv/tata/data /srv/tata/certs   # di proprietà di TATA_UID:TATA_GID
+cp .env.example .env     # cartelle, nome, token Cloudflare, rete, IP, password
+mkdir -p /srv/tata/data /srv/tata/acme   # di proprietà di TATA_UID:TATA_GID
 docker compose up -d --build
 ```
 
-- **TLS**: `server.crt` e `server.key` in `${TATA_CERTS}`. uvicorn li legge all'avvio, quindi
-  chi li rinnova deve riavviare il container. Con un cert pusher per step-ca che distribuisce ai
-  container Docker copiando i file e mandando un segnale, il target è:
-
-  ```ini
-  [docker:tata]
-  container_name = tata
-  hostname = tata.example.lan
-  cert_dest = /root/tata/server.crt
-  key_dest = /root/tata/server.key
-  signal = RESTART
-  ```
-
-  con `${TATA_CERTS}` montato su `/root/tata` nel pusher.
-- **DNS**: un record A per il nome host che punta a `${TATA_IP}`.
+- **TLS**: certificato Let's Encrypt per `${TATA_DOMAIN}`, preso da `entrypoint.sh` con acme.sh
+  al primo avvio (DNS-01 su Cloudflare: nessuna porta aperta verso internet) e tenuto in
+  `${TATA_ACME}`. Il rinnovo si controlla una volta al giorno; uvicorn non ricarica i
+  certificati, quindi dopo un rinnovo si ferma e `restart: unless-stopped` lo fa ripartire.
+- **DNS**: solo sul DNS della LAN, un record A per `${TATA_DOMAIN}` che punta a `${TATA_IP}`;
+  nessun record pubblico.
 - **Accesso**: pagina di accesso con utente e password; la sessione è un cookie (`HttpOnly`,
   `Secure`, `SameSite=Lax`) con un token casuale di cui il database tiene solo l'hash, valido
   90 giorni o fino a *esci*, e decade se la password con cui si è entrati cambia. Il

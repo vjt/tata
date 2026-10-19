@@ -5,9 +5,10 @@ services:
       context: .
       target: runtime
     container_name: tata
-    restart: unless-stopped
+    restart: unless-stopped   # also what brings uvicorn back after a certificate renewal
+    init: true
     hostname: tata
-    user: "${TATA_UID}:${TATA_GID}"   # host owner of the data and certs dirs: no chown needed
+    user: "${TATA_UID}:${TATA_GID}"   # host owner of the data and acme dirs: no chown needed
     environment:
       - TATA_USER
       - TATA_PASSWORD
@@ -15,9 +16,12 @@ services:
       - TATA_RIMBORSO_EURO_KM
       - TATA_HA_URL
       - TATA_HA_TOKEN
+      - TATA_DOMAIN
+      - CF_Token
+      - CF_Zone_ID
     volumes:
       - ${TATA_DATA}:/data
-      - ${TATA_CERTS}:/certs:ro
+      - ${TATA_ACME}:/acme
     networks:
       lan:
         ipv4_address: ${TATA_IP}

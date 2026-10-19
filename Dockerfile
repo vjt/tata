@@ -21,10 +21,20 @@ ENV HOME=/tmp PYTHONDONTWRITEBYTECODE=1
 
 # ---- runtime
 FROM base AS runtime
+ARG ACME_VERSION=3.1.6
+# acme.sh (Let's Encrypt, DNS-01 on Cloudflare) needs curl and openssl.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl openssl \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/acme.sh \
+    && curl -fsSL https://github.com/acmesh-official/acme.sh/archive/refs/tags/${ACME_VERSION}.tar.gz \
+       | tar xz -C /opt/acme.sh --strip-components=1
 RUN pip install --no-cache-dir . \
     && useradd --system --uid 10001 tata
+COPY entrypoint.sh /usr/local/bin/
 USER tata
 ENV TATA_DATA_DIR=/data TATA_RATES_DIR=/app/rates PYTHONDONTWRITEBYTECODE=1
 EXPOSE 443
+ENTRYPOINT ["entrypoint.sh"]
 CMD ["uvicorn", "--factory", "tata.web:app_from_env", "--host", "0.0.0.0", "--port", "443", \
-     "--ssl-certfile", "/certs/server.crt", "--ssl-keyfile", "/certs/server.key"]
+     "--ssl-certfile", "/acme/live/fullchain.pem", "--ssl-keyfile", "/acme/live/key.pem"]
