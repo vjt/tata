@@ -16,7 +16,7 @@ DEPARTURE = timedelta(seconds=120)  # eve's departure_timeout: not_home comes th
 RESTART_GRACE = timedelta(minutes=5)  # not_home after unknown, home again within this: restart
 # Two shifts. A stay belongs to the shift of its arrival: morning before noon (or already home
 # at midnight), afternoon from noon on.
-MORNING_FROM = 7 * 60 + 30  # morning start: the first arrival in MORNING_FROM..MORNING_TO
+MORNING_FROM = 7 * 60  # morning start: the first arrival in MORNING_FROM..MORNING_TO
 MORNING_TO = 8 * 60 + 15
 TAIL_BY = 8 * 60 + 30  # a morning departure by then is the school run on foot: + WALK
 WALK = 30  # minutes still worked after leaving the house, taking the children to school
@@ -50,7 +50,7 @@ class Session(Frozen):
 class Anomaly(StrEnum):
     """Why a day does not fit the two shifts: the employer enters it by hand."""
 
-    NO_MORNING = "nessun arrivo tra 7:30 e 8:15"
+    NO_MORNING = "nessun arrivo tra 7:00 e 8:15"
     STRAY = "uscita fuori turno"
     NO_END = "turno senza uscita"
     LOST = "uscita ignota (Home Assistant giù)"
@@ -72,7 +72,7 @@ class _Stay(Frozen):
 def presence_days(history: History, first: date, last: date) -> list[PresenceDay]:
     """One PresenceDay per calendar day first..last, with the punches the shifts propose.
 
-    Morning: from the first arrival in 07:30-08:15 to the end of the last morning stay, + 30 min
+    Morning: from the first arrival in 07:00-08:15 to the end of the last morning stay, + 30 min
     if that is by 08:30. Afternoon: from the first arrival, or 15:45 if later, to the end of
     the last afternoon stay. What lies in between is ignored; a shift whose end is unknown or
     past noon proposes nothing, and the day lists its anomalies.

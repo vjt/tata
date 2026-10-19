@@ -121,13 +121,20 @@ def test_no_arrival_in_the_morning_window_is_anomalous() -> None:
     assert d.anomalies == [Anomaly.NO_MORNING, Anomaly.STRAY]
 
 
+def test_morning_starts_at_an_arrival_from_seven() -> None:
+    # Home 07:29:52, eight seconds before half past seven (vjt 19/10): the shift starts then.
+    d = one_day(history(AWAY, ("07:29:52", HOME), ("08:16:07", AWAY)))
+    assert d.proposals == [span("07:29-08:44")]
+    assert d.anomalies == []
+
+
 def test_departure_before_the_morning_start_is_outside_every_shift() -> None:
-    # In and out 07:00-07:10, then the real arrival 07:50.
+    # In and out 06:40-06:50, then the real arrival 07:50.
     d = one_day(
         history(
             AWAY,
-            ("07:00:00", HOME),
-            ("07:12:00", AWAY),
+            ("06:40:00", HOME),
+            ("06:52:00", AWAY),
             ("07:50:00", HOME),
             ("08:12:00", AWAY),
         )

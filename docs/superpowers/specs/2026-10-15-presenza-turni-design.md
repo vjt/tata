@@ -20,7 +20,7 @@ A shift is a window of the day. Within it:
 
 | shift     | start window  | default start | end                  | tail                        |
 |-----------|---------------|---------------|----------------------|-----------------------------|
-| morning   | 07:30–08:15   | none          | last departure < 12:00 | +30 min if departure ≤ 08:30 |
+| morning   | 07:00–08:15   | none          | last departure < 12:00 | +30 min if departure ≤ 08:30 |
 | afternoon | before 15:45  | 15:45         | last departure       | none                        |
 
 Morning: she arrives, then leaves for the school run. Leaving by 08:30 means she walks the
