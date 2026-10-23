@@ -1,4 +1,4 @@
-"""Yearly views: TFR fund, attestazione for the worker's 730, employer's deduction."""
+"""Yearly views: TFR fund, attestazione for the worker's 730, employer's deduction, balance."""
 
 import calendar
 from collections.abc import Callable
@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import yaml
 
-from tata.models import Contract, Event, Frozen, Payment, TfrAdvance, euro
+from tata.models import Contract, Event, Frozen, Payment, TfrAdvance, WagePayment, euro
 from tata.payslip import Payslip, compute_payslip
 from tata.rates import Rates, RatesBook
 
@@ -27,10 +27,10 @@ def employed_months(contract: Contract, year: int, upto_month: int) -> list[int]
 
 
 def computed_source(contract: Contract, events: list[Event], book: RatesBook) -> PayslipSource:
-    """Payslips computed from scratch, no snapshots, no rimborso."""
+    """Payslips computed from scratch, no snapshots, no rimborsi."""
 
     def source(year: int, month: int) -> Payslip:
-        return compute_payslip(contract, events, year, month, book.get(year), None)
+        return compute_payslip(contract, events, year, month, book.get(year), [])
 
     return source
 
@@ -39,6 +39,31 @@ def year_payslips(
     contract: Contract, year: int, upto_month: int, source: PayslipSource
 ) -> list[Payslip]:
     return [source(year, m) for m in employed_months(contract, year, upto_month)]
+
+
+class Balance(Frozen):
+    dovuto: Decimal  # da pagare of every month since the hire, today's as worked so far
+    pagato: Decimal
+    saldo: Decimal  # dovuto - pagato: still to pay; negative: paid ahead
+
+
+def balance(
+    contract: Contract, payments: list[WagePayment], today: date, source: PayslipSource
+) -> Balance:
+    """What she is owed since the hire up to today against what she was paid (vjt 23/10):
+    progressive, so acconti and partial payments need no month."""
+    dovuto = sum(
+        (
+            s.da_pagare
+            for year in range(contract.assunzione.year, today.year + 1)
+            for s in year_payslips(
+                contract, year, today.month if year == today.year else 12, source
+            )
+        ),
+        Decimal(0),
+    )
+    pagato = sum((p.importo for p in payments), Decimal(0))
+    return Balance(dovuto=dovuto, pagato=pagato, saldo=dovuto - pagato)
 
 
 # ---- TFR (CCNL art. 41, art. 2120 c.c.)

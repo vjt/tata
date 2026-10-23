@@ -46,6 +46,7 @@ def contract(
         livello=Livello.BS,
         paga_oraria=Decimal(paga),
         tab_h=tab_h,
+        trattiene=True,
         assunzione=assunzione,
         cessazione=cessazione,
         patrono_mese=6,

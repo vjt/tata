@@ -23,6 +23,7 @@
     </label>
     <label>Paga oraria (€) <input name="paga_oraria" required inputmode="decimal" value="{{ c.paga_oraria | num if c }}"></label>
     <label class="check"><input type="checkbox" name="tab_h" {{ "checked" if c and c.tab_h }}> baby sitter di bambini sotto i 6 anni (indennità tab. H)</label>
+    <label class="check"><input type="checkbox" name="trattiene" {{ "checked" if not c or c.trattiene }}> trattengo dalla paga i contributi a carico della lavoratrice (senza: le pago il lordo e quei contributi li pago io)</label>
     <label>Assunzione <input type="date" name="assunzione" required value="{{ c.assunzione.isoformat() if c }}"></label>
     <label>Cessazione <input type="date" name="cessazione" value="{{ c.cessazione.isoformat() if c and c.cessazione }}"></label>
     <label>Santo patrono (gg/mm) <input name="patrono" required pattern="\d{1,2}/\d{1,2}" value="{{ '%02d/%02d' % (c.patrono_giorno, c.patrono_mese) if c }}"></label>

@@ -25,6 +25,7 @@ from starlette.datastructures import FormData
 from tata.annual import (
     PayslipSource,
     attestazione,
+    balance,
     deduzione,
     deduzione_yaml,
     employed_months,
@@ -49,9 +50,11 @@ from tata.models import (
     Span,
 )
 from tata.payslip import (
+    Line,
     Payslip,
     compute_payslip,
     rimborso_line,
+    spesa_line,
     time_cost,
     trip_cost,
     trip_km,
@@ -93,6 +96,8 @@ HA_VARS = ("TATA_HA_URL", "TATA_HA_TOKEN")
 MILEAGE_VARS = ("TATA_RIMBORSO_KM", "TATA_RIMBORSO_EURO_KM")
 RETURN_TO = re.compile(r"/r/\d+/(presenza|mese)/\d{4}/\d{1,2}")
 LAVORO = "lavoro"  # the registra form's tipo for worked time (a punch); the others are events
+SPESA = "spesa"  # ... an expense to reimburse
+PAGAMENTO = "pagamento"  # ... money given to her
 SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
 COOKIE = "tata_sessione"
 SESSION = timedelta(days=90)  # the PWA on her phone should not ask every week
@@ -379,12 +384,15 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             if final is not None:
                 return final
             events = paid_events(rs, contract, year, month)
-            rimborso = None
+            rimborsi: list[Line] = []
             if settings.mileage is not None:
                 month_turni = turni(rs.punches(), rs.employer_car(), rs.turno_km(), year, month)
-                trips = [t.km for t in month_turni if t.own_car]
-                rimborso = rimborso_line(settings.mileage, trips)
-            return compute_payslip(contract, events, year, month, book.get(year), rimborso)
+                trips = rimborso_line(settings.mileage, [t.km for t in month_turni if t.own_car])
+                rimborsi += [trips] if trips is not None else []
+            rimborsi += [
+                spesa_line(s) for s in rs.spese() if (s.day.year, s.day.month) == (year, month)
+            ]
+            return compute_payslip(contract, events, year, month, book.get(year), rimborsi)
 
         return get
 
@@ -580,7 +588,7 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         rates = book.get(year)
         slip = source(rs, contract)(year, month)
         final = rs.final_payslip(year, month) is not None
-        planned = None if final else compute_payslip(contract, events, year, month, rates, None)
+        planned = None if final else compute_payslip(contract, events, year, month, rates, [])
         paid = paid_events(rs, contract, year, month)
         work = {d.day: d for d in month_work(contract, paid, year, month, rates)}
         weeks = calendar.Calendar().monthdatescalendar(year, month)
@@ -614,6 +622,13 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "holidays": holidays,
                 "events": month_events,
                 "kinds": list(EventKind),
+                "spese": [s for s in rs.spese() if (s.day.year, s.day.month) == (year, month)],
+                "payments": [
+                    p for p in rs.wage_payments() if (p.day.year, p.day.month) == (year, month)
+                ],
+                "balance": balance(
+                    contract, rs.wage_payments(), now().date(), source(rs, contract)
+                ),
                 "slip": slip,
                 "planned": planned,
                 "trips": {t.punch_id: t for t in month_turni},
@@ -695,7 +710,34 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             return add_punch(request, cid, form)
         if request.state.worker:
             raise HTTPException(403)
+        if form.get("tipo") in (SPESA, PAGAMENTO):
+            return add_money(cid, form)
         return add_event(cid, form)
+
+    def add_money(cid: int, form: FormData) -> RedirectResponse:
+        """A spesa (reimbursed in its month) or a payment to her (counted in the balance)."""
+        rs = store.rapporto(cid)
+        day = date.fromisoformat(_field(form, "dal"))
+        if day > now().date():
+            raise ValueError("non si registrano soldi nel futuro")
+        importo = _decimal(_field(form, "importo"))
+        if form.get("tipo") == SPESA:
+            if not rs.contract().employed_on(day):
+                raise ValueError(f"il {day:%d/%m/%Y} non c'era il rapporto")
+            rs.add_spesa(day, importo, _field(form, "note"))
+        else:
+            rs.add_wage_payment(day, importo, _field(form, "note"))
+        return RedirectResponse(f"/r/{cid}/mese/{day.year}/{day.month}", status_code=303)
+
+    @app.post("/r/{cid}/spese/{spesa_id}/elimina")
+    def delete_spesa(cid: int, spesa_id: int) -> RedirectResponse:
+        day = store.rapporto(cid).delete_spesa(spesa_id)
+        return RedirectResponse(f"/r/{cid}/mese/{day.year}/{day.month}", status_code=303)
+
+    @app.post("/r/{cid}/pagamenti/{payment_id}/elimina")
+    def delete_wage_payment(cid: int, payment_id: int) -> RedirectResponse:
+        day = store.rapporto(cid).delete_wage_payment(payment_id)
+        return RedirectResponse(f"/r/{cid}/mese/{day.year}/{day.month}", status_code=303)
 
     def add_punch(request: Request, cid: int, form: FormData) -> RedirectResponse:
         rs = store.rapporto(cid)
@@ -1023,6 +1065,7 @@ def _contract(form: FormData) -> Contract:
         livello=Livello(_field(form, "livello")),
         paga_oraria=_decimal(_field(form, "paga_oraria")),
         tab_h="tab_h" in form,
+        trattiene="trattiene" in form,
         assunzione=date.fromisoformat(_field(form, "assunzione")),
         cessazione=date.fromisoformat(cessazione) if cessazione else None,
         patrono_mese=month,

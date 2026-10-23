@@ -27,6 +27,7 @@ CONTRACT_FORM = {
     "lavoratore_nome": "Carmen Necchi",
     "lavoratore_cf": "NCCCMN95A41D612Y",
     "livello": "BS",
+    "trattiene": "on",  # her share withheld, as usual
     "paga_oraria": "8,86",
     "assunzione": "2026-10-12",
     "cessazione": "",
@@ -1064,3 +1065,49 @@ def test_one_registra_form_for_work_and_events(tmp_path: Path) -> None:
     w = with_worker(c, 1, WORKER)
     assert '<option value="ferie">' not in w.get("/r/1/mese/2026/10").text
     assert w.post("/r/1/registra", data={**ferie, "note": ""}).status_code == 403
+
+
+def test_spese_payments_and_the_balance(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 19, 0))
+    c.post(
+        "/r/1/registra",
+        data={"tipo": "lavoro", "dal": "2026-10-13", "inizio": "08:00", "fine": "08:45"},
+    )
+    money = {"dal": "2026-10-13", "al": "", "inizio": "", "fine": ""}
+    spesa = {**money, "tipo": "spesa", "importo": "7,50", "note": "merenda al parco"}
+    assert c.post("/r/1/registra", data=spesa).status_code == 303
+    paid = {**money, "tipo": "pagamento", "importo": "10", "note": "acconto"}
+    assert c.post("/r/1/registra", data=paid).status_code == 303
+    page = c.get("/r/1/mese/2026/10").text
+    # 45 min x 8,86 = 6,645 -> 6,65 lordo; her share 0,75 h x 0,43 = 0,3225 -> 0,32 INPS and
+    # 0,75 x 0,02 = 0,015 -> 0,02 Cassa Colf: netto 6,31. + 5,36 trasferta + 7,50 merenda =
+    # 19,17 da pagare; 10 paid: 9,17 still to pay.
+    assert "Rimborso spese del 13/10: merenda al parco</td><td>+ 7,50 €" in page
+    assert '<td colspan="3">Da pagare</td><td>19,17 €' in page
+    assert "13/10/2026 · pagato 10,00 € · acconto" in page
+    assert "dovuto 19,17 €, pagato 10,00 €,\n    <b>da pagare 9,17 €</b>" in page
+    # Paying her the lordo (vjt 23/10): her share is the employer's, the netto is the lordo.
+    lordo = {k: v for k, v in CONTRACT_FORM.items() if k != "trattiene"}
+    assert c.post("/r/1/contratto", data=lordo).status_code == 303
+    page = c.get("/r/1/mese/2026/10").text
+    assert "pagati dal datore e non trattenuti" in page
+    assert '<td colspan="3">Netto</td><td>6,65 €' in page  # 6,65 + 5,36 + 7,50 = 19,51
+    assert "<b>da pagare 9,51 €</b>" in page
+    # Too much paid: 10 + 20 = 30 against 19,51, 10,49 ahead, not a negative debt.
+    c.post("/r/1/registra", data={**paid, "importo": "20"})
+    assert "<b>pagato in anticipo 10,49 €</b>" in c.get("/r/1/mese/2026/10").text
+    # Nothing in the future; a spesa needs a what; the worker adds neither.
+    future = {**spesa, "dal": "2026-10-14"}
+    assert c.post("/r/1/registra", data=future).status_code == 400
+    assert c.post("/r/1/registra", data={**spesa, "note": ""}).status_code == 400
+    w = with_worker(c, 1, WORKER)
+    assert w.post("/r/1/registra", data=spesa).status_code == 403
+    rs = Store(tmp_path / "tata.sqlite").rapporto(1)
+    [s] = rs.spese()
+    assert w.post(f"/r/1/spese/{s.id}/elimina").status_code == 403
+    # The employer deletes them.
+    assert c.post(f"/r/1/spese/{s.id}/elimina").status_code == 303
+    for p in rs.wage_payments():
+        assert c.post(f"/r/1/pagamenti/{p.id}/elimina").status_code == 303
+    assert Store(tmp_path / "tata.sqlite").rapporto(1).spese() == []
+    assert "<b>da pagare 12,01 €</b>" in c.get("/r/1/mese/2026/10").text  # 6,65 + 5,36

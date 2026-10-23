@@ -7,7 +7,9 @@
 dichiara di aver corrisposto nell'anno {{ att.year }} a
 <strong>{{ att.contract.lavoratore_nome }}</strong> (C.F. {{ att.contract.lavoratore_cf }}) le seguenti somme
 (CCNL lavoro domestico, art. 34 c.6). Il datore di lavoro domestico non è sostituto d'imposta: non
-sono state operate ritenute IRPEF.</p>
+sono state operate ritenute IRPEF.{% if not att.contract.trattiene %} I contributi INPS e Cassa Colf a
+carico del lavoratore non sono stati trattenuti: li ha pagati il datore di lavoro, e il netto
+corrisposto è pari al lordo.{% endif %}</p>
 <table class="lines">
   <thead><tr><th>Mese</th><th>Lordo</th><th>Contributi INPS lavoratore</th><th>Cassa Colf lavoratore</th><th>Netto</th></tr></thead>
   <tbody>

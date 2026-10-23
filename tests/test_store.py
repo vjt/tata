@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from contextlib import closing
 from datetime import date
@@ -6,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from tata.models import EventKind, Payment
-from tata.payslip import compute_payslip
+from tata.models import EventKind, Mileage, Payment
+from tata.payslip import compute_payslip, rimborso_line
 from tata.store import RapportoStore, Store
 from tests.helpers import rates_2026, span, standard_contract
 
@@ -44,7 +45,7 @@ def test_finalized_month_is_immutable(tmp_path: Path) -> None:
     worker = standard_contract(date(2026, 10, 12))
     s.save_contract(worker, {})
     ev = s.add_event(date(2026, 10, 13), EventKind.ASSENZA, None, "")
-    slip = compute_payslip(worker, s.events(), 2026, 10, rates_2026(), None)
+    slip = compute_payslip(worker, s.events(), 2026, 10, rates_2026(), [])
     s.finalize(slip)
     assert s.final_payslip(2026, 10) == slip
     assert s.final_payslip(2026, 11) is None
@@ -115,7 +116,7 @@ def test_deleting_a_generated_event_unlinks_it(tmp_path: Path) -> None:
 def test_punch_in_a_finalized_month_is_refused(tmp_path: Path) -> None:
     s = store(tmp_path)
     worker = standard_contract(date(2026, 10, 12))
-    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), None))
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), []))
     with pytest.raises(ValueError, match="finalizzato"):
         s.add_punch(date(2026, 10, 13), 480, None, [])
 
@@ -129,7 +130,7 @@ def test_close_and_delete_punch_in_a_finalized_month_are_refused(tmp_path: Path)
     s = store(tmp_path)
     worker = standard_contract(date(2026, 10, 12))
     opened = s.add_punch(date(2026, 10, 13), 945, None, [])
-    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), None))
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), []))
     with pytest.raises(ValueError, match="finalizzato"):
         s.update_punch(opened.id, opened.day, 945, 1080, [])
     with pytest.raises(ValueError, match="finalizzato"):
@@ -164,7 +165,7 @@ def test_saving_the_contract_refuses_extras_of_a_finalized_month(tmp_path: Path)
     s = store(tmp_path)
     worker = standard_contract(date(2026, 10, 12))
     p = s.add_punch(date(2026, 10, 13), 945, 1080, [])
-    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), None))
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), []))
     later = standard_contract(date(2026, 10, 13))
     with pytest.raises(ValueError, match="finalizzato"):
         s.save_contract(later, {p.id: [span("15:45-16:00")]})
@@ -181,7 +182,7 @@ def test_employer_car_round_trip_and_finalized_month(tmp_path: Path) -> None:
     s.set_employer_car(tue, False, False)
     assert s.employer_car() == set()
     worker = standard_contract(date(2026, 10, 12))
-    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), None))
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), []))
     with pytest.raises(ValueError, match="finalizzato"):
         s.set_employer_car(tue, True, True)
 
@@ -198,7 +199,7 @@ def test_turno_km_round_trip_and_finalized_month(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="km"):
         s.set_turno_km(tue, True, Decimal(-1))
     worker = standard_contract(date(2026, 10, 12))
-    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), None))
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), []))
     with pytest.raises(ValueError, match="finalizzato"):
         s.set_turno_km(tue, True, None)
 
@@ -299,6 +300,67 @@ def test_version_0_becomes_rapporto_1(tmp_path: Path) -> None:
     assert rs.employer_car() == set()
     Store(path)  # reopening an upgraded database changes nothing
     assert root.rapporto(1).punches() == rs.punches()
+
+
+def test_version_4_contracts_withhold_and_finals_get_rimborsi(tmp_path: Path) -> None:
+    # Version 4 had no `trattiene` (her share was always withheld) and one optional rimborso
+    # line per payslip, plus a lordo_da_pagare: the upgrade rewrites the stored JSON.
+    path = tmp_path / "tata.sqlite"
+    worker = standard_contract(date(2026, 10, 12))
+    s = Store(path).rapporto(Store(path).add_rapporto(worker))
+    trips = rimborso_line(Mileage(km_turno=Decimal(12), euro_km=Decimal("0.4463")), [None])
+    assert trips is not None
+    with_trip = compute_payslip(worker, [], 2026, 10, rates_2026(), [trips])
+    s.finalize(with_trip)
+    s.finalize(compute_payslip(worker, [], 2026, 11, rates_2026(), []))
+    with closing(sqlite3.connect(path)) as db, db:
+        for (data,) in db.execute("SELECT data FROM contract").fetchall():
+            old = json.loads(data)
+            del old["trattiene"]
+            db.execute("UPDATE contract SET data = ?", (json.dumps(old),))
+        for month, data in db.execute("SELECT month, data FROM payslip_final").fetchall():
+            old = json.loads(data)
+            del old["contract"]["trattiene"]
+            rimborsi = old.pop("rimborsi")
+            old["rimborso"] = rimborsi[0] if rimborsi else None
+            old["lordo_da_pagare"] = "1.00"
+            db.execute(
+                "UPDATE payslip_final SET data = ? WHERE month = ?", (json.dumps(old), month)
+            )
+        db.execute("DROP TABLE spesa")
+        db.execute("DROP TABLE wage_payment")
+        db.execute("PRAGMA user_version = 4")
+    rs = Store(path).rapporto(1)
+    assert rs.contract() == worker and worker.trattiene
+    assert rs.final_payslip(2026, 10) == with_trip
+    final_nov = rs.final_payslip(2026, 11)
+    assert final_nov is not None and final_nov.rimborsi == ()
+    assert rs.spese() == [] and rs.wage_payments() == []
+
+
+def test_spese_and_wage_payments(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    tue = date(2026, 10, 13)
+    merenda = s.add_spesa(tue, Decimal("7.50"), "merenda")
+    assert s.spese() == [merenda] and merenda.importo == Decimal("7.50")
+    with pytest.raises(ValueError, match="positivo"):
+        s.add_spesa(tue, Decimal(0), "niente")
+    with pytest.raises(ValueError, match="descrizione"):
+        s.add_spesa(tue, Decimal(3), " ")
+    acconto = s.add_wage_payment(tue, Decimal(100), "acconto")
+    saldo = s.add_wage_payment(date(2026, 11, 2), Decimal("255.72"), "")
+    assert s.wage_payments() == [acconto, saldo]
+    assert s.delete_wage_payment(acconto.id) == tue and s.wage_payments() == [saldo]
+    with pytest.raises(KeyError):
+        s.delete_wage_payment(acconto.id)
+    # A spesa belongs to its month's payslip: frozen with it. Payments have no month.
+    worker = standard_contract(date(2026, 10, 12))
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), []))
+    with pytest.raises(ValueError, match="finalizzato"):
+        s.delete_spesa(merenda.id)
+    with pytest.raises(ValueError, match="finalizzato"):
+        s.add_spesa(tue, Decimal(2), "gelato")
+    assert s.delete_wage_payment(saldo.id) == date(2026, 11, 2)
 
 
 def test_version_2_worker_passwords_need_a_login_name(tmp_path: Path) -> None:

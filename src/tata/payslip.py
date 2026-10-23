@@ -4,7 +4,17 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from tata.hours import month_work
-from tata.models import Bucket, Contract, Event, EventKind, Frozen, Livello, Mileage, euro
+from tata.models import (
+    Bucket,
+    Contract,
+    Event,
+    EventKind,
+    Frozen,
+    Livello,
+    Mileage,
+    Spesa,
+    euro,
+)
 from tata.rates import Contributo, Rates
 
 WEEKS_PER_MONTH = Decimal(52) / 12
@@ -51,12 +61,11 @@ class Payslip(Frozen):
     oraria_effettiva: Decimal  # paga oraria + 1/12 tredicesima: picks the INPS band
     contributo: Contributo  # INPS, per hour
     cassa_colf: Contributo  # per hour
-    trattenuta_inps: Decimal
-    trattenuta_cassa_colf: Decimal
-    netto: Decimal  # lordo - trattenute: the retribuzione, what the attestazione sums
-    rimborso: Line | None  # trasferte, not income (art. 51 c.5 TUIR): outside the lordo
-    da_pagare: Decimal  # netto + rimborso
-    lordo_da_pagare: Decimal  # lordo + rimborso: what is owed before the trattenute
+    trattenuta_inps: Decimal  # her INPS share, owed to INPS whoever bears it
+    trattenuta_cassa_colf: Decimal  # her Cassa Colf share, likewise
+    netto: Decimal  # lordo - her shares if withheld (contract.trattiene), else the lordo
+    rimborsi: tuple[Line, ...]  # trasferte and spese: not income, outside the lordo
+    da_pagare: Decimal  # netto + rimborsi
     tredicesima_maturata: Decimal  # this calendar year, up to this month
     ferie_maturate: Decimal  # days since hire, up to this month
     ferie_godute: Decimal
@@ -74,11 +83,11 @@ def compute_payslip(
     year: int,
     month: int,
     rates: Rates,
-    rimborso: Line | None,
+    rimborsi: list[Line],
 ) -> Payslip:
     """The payslip of one month. Raises ValueError on pay below minimum or inconsistent events.
 
-    `rimborso` (rimborso_line) is paid on top of the netto, outside every base.
+    `rimborsi` (rimborso_line, spesa_line) are paid on top of the netto, outside every base.
     """
     paga = pay_breakdown(contract, year, month, rates)
     p = paga.oraria
@@ -140,6 +149,7 @@ def compute_payslip(
     contributo = rates.inps.contributo(oraria_effettiva, weekly)
     trattenuta_inps = euro(ore * contributo.lavoratore)
     trattenuta_cassa = euro(ore * rates.inps.cassa_colf.lavoratore)
+    netto = lordo - (trattenuta_inps + trattenuta_cassa if contract.trattiene else 0)
 
     return Payslip(
         year=year,
@@ -154,13 +164,9 @@ def compute_payslip(
         cassa_colf=rates.inps.cassa_colf,
         trattenuta_inps=trattenuta_inps,
         trattenuta_cassa_colf=trattenuta_cassa,
-        netto=lordo - trattenuta_inps - trattenuta_cassa,
-        rimborso=rimborso,
-        da_pagare=lordo
-        - trattenuta_inps
-        - trattenuta_cassa
-        + (rimborso.importo if rimborso is not None else 0),
-        lordo_da_pagare=lordo + (rimborso.importo if rimborso is not None else 0),
+        netto=netto,
+        rimborsi=tuple(rimborsi),
+        da_pagare=netto + sum((r.importo for r in rimborsi), Decimal(0)),
         tredicesima_maturata=tredicesima,
         ferie_maturate=euro(ferie_maturate),
         ferie_godute=ferie_godute,
@@ -279,6 +285,17 @@ def rimborso_line(mileage: Mileage, trips: list[Decimal | None]) -> Line | None:
         unita="km",
         tariffa=mileage.euro_km,
         importo=sum((trip_cost(mileage, km) for km in trips), Decimal(0)),
+    )
+
+
+def spesa_line(spesa: Spesa) -> Line:
+    """A spesa she paid for the employer, reimbursed as it is."""
+    return Line(
+        voce=f"Rimborso spese del {spesa.day:%d/%m}: {spesa.descrizione}",
+        quantita=Decimal(1),
+        unita="",
+        tariffa=spesa.importo,
+        importo=spesa.importo,
     )
 
 

@@ -80,6 +80,15 @@ Nella pagina del mese:
   tempo (minuti × paga oraria, senza maggiorazioni: un colpo d'occhio, non il prospetto) e
   costo della trasferta (solo con l'auto propria, una per turno); ✏️ carica la riga nel form
   *Registra* per correggerla, ❌ la cancella.
+- **Spese e pagamenti**: dal form *Registra* il datore aggiunge una *spesa da rimborsare*
+  (giorno, importo, cosa: la merenda al parco), che va nel *Da pagare* del suo mese fuori da
+  lordo, contributi e TFR, e un *pagamento a lei* (giorno, importo, nota), non legato a un
+  mese. La pagina del mese mostra il saldo dall'assunzione a oggi: dovuto (il *da pagare* di
+  ogni mese, quello in corso per il lavorato fin qui) meno pagato; acconti e parziali vanno
+  bene.
+- **Paga lorda o netta**: nel contratto, *trattengo i contributi a carico della lavoratrice*.
+  Senza, le si paga il lordo: il netto è il lordo, la sua quota INPS e Cassa Colf la paga il
+  datore (all'INPS si versa lo stesso), e l'attestazione lo dichiara.
 - **Si paga il timbrato**: il prospetto (sezione *Lavorato*) conta solo le ore timbrate, più
   festività, ferie, permessi, malattia e mandata a casa confermati. Niente timbrature, niente
   paga: i giorni ancora da venire e i vuoti non confermati non sono pagati. La sezione

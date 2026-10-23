@@ -67,10 +67,17 @@ Calc modules never touch the DB; the store never computes.
 - **Rimborso trasferte per turno** (half-day with a closed punch, at most two a day): km per
   turno × ACI €/km, both from the env (`TATA_RIMBORSO_*`, runtime data). Trasferta fuori comune,
   not income (art. 51 c.5 TUIR): outside lordo, INPS, TFR, attestazione; netto stays lordo −
-  trattenute, `da_pagare` = netto + rimborso. Her car by default; a radio (auto propria / auto
+  trattenute, `da_pagare` = netto + rimborsi. Her car by default; a radio (auto propria / auto
   del datore) on the timbra button and on the punch form declares it per turno
   (`employer_car`): the employer's pays nothing. A turno's km are the configured ones unless the
   employer corrects them on the row's ✏️ form (`turno_km`, replacing, not adding).
+- **Spese** (vjt 23/10): an expense she paid for the employer (day, importo, descrizione) is
+  another rimborso of its month, outside every base, like the trasferte. Employer only.
+- **Trattiene** (contract flag, vjt 23/10): the employer withholds her INPS + Cassa Colf share
+  (CCNL default) or pays her the lordo and bears it: then netto = lordo, the shares are still
+  owed to INPS, and the attestazione says they were not withheld.
+- **Balance**: wage payments (day, importo, nota) belong to no month; the month page shows
+  owed since the hire (each month's `da_pagare`, today's as worked so far) − paid.
 - **Wifi presence proposes, never records.** `/presenza` reads the worker's phone tracker from
   Home Assistant (eve: `not_home` comes 120 s after the last sighting) and proposes punches by
   shift: morning = first arrival 07:30–08:15 to the last departure before noon, + 30 min only if

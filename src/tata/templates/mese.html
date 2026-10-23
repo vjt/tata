@@ -114,10 +114,10 @@
     </tbody>
   </table>
   </div>
-  {% if slip.rimborso %}
-  <p>Trasferte del mese: {{ trip_cost | length }} turni, {{ slip.rimborso.quantita | num }} km,
-    rimborso {{ slip.rimborso.importo | eur }} (non imponibile).</p>
-  {% endif %}
+  {% for r in slip.rimborsi if r.unita == "km" %}
+  <p>Trasferte del mese: {{ trip_cost | length }} turni, {{ r.quantita | num }} km,
+    rimborso {{ r.importo | eur }} (non imponibile).</p>
+  {% endfor %}
   {% endif %}
 </section>
 
@@ -137,6 +137,32 @@
 </section>
 {% endif %}
 
+<section class="card" id="soldi">
+  <h2>Spese e pagamenti</h2>
+  <ul class="events">
+  {% for s in spese %}
+    <li>
+      <span>{{ s.day | dmy }} · spesa · {{ s.descrizione }} · {{ s.importo | eur }}</span>
+      {% if employer and not final %}
+      <form method="post" action="{{ base }}/spese/{{ s.id }}/elimina" onsubmit="return confirm('Eliminare la spesa del {{ s.day | dmy }}?')"><button class="icon" title="elimina" aria-label="elimina">❌</button></form>
+      {% endif %}
+    </li>
+  {% endfor %}
+  {% for p in payments %}
+    <li>
+      <span>{{ p.day | dmy }} · pagato {{ p.importo | eur }}{% if p.nota %} · {{ p.nota }}{% endif %}</span>
+      {% if employer %}
+      <form method="post" action="{{ base }}/pagamenti/{{ p.id }}/elimina" onsubmit="return confirm('Eliminare il pagamento del {{ p.day | dmy }}?')"><button class="icon" title="elimina" aria-label="elimina">❌</button></form>
+      {% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+  <p>Dall'assunzione a oggi: dovuto {{ balance.dovuto | eur }}, pagato {{ balance.pagato | eur }},
+    <b>{% if balance.saldo >= 0 %}da pagare {{ balance.saldo | eur }}{% else %}pagato in anticipo {{ (-balance.saldo) | eur }}{% endif %}</b>.</p>
+  <p class="hint">Il dovuto è il <i>da pagare</i> di ogni mese (netto più rimborsi), quello in corso
+    per il lavorato fin qui. I pagamenti non sono legati a un mese: acconti e saldi parziali vanno bene.</p>
+</section>
+
 {% if not final %}
 <form id="registra" method="post" action="{{ base }}/registra" class="card form">
   <h2>{% if editing %}Modifica timbratura{% else %}Registra{% endif %}</h2>
@@ -144,14 +170,17 @@
   <label>Tipo
     <select name="tipo" id="tipo">
       <option value="lavoro">lavoro</option>
-      {% if employer and not editing %}{% for k in kinds %}<option value="{{ k }}">{{ k }}</option>{% endfor %}{% endif %}
+      {% if employer and not editing %}{% for k in kinds %}<option value="{{ k }}">{{ k }}</option>{% endfor %}
+      <option value="spesa">spesa da rimborsare</option>
+      <option value="pagamento">pagamento a lei</option>{% endif %}
     </select>
   </label>
   <div class="row">
     <label>{% if employer %}Dal{% else %}Giorno{% endif %} <input type="date" name="dal" required value="{{ editing.day.isoformat() if editing else selected }}"></label>
     {% if employer and not editing %}<label data-solo="eventi">Al <input type="date" name="al"></label>{% endif %}
   </div>
-  <div class="row">
+  {% if employer and not editing %}<label data-solo="soldi">Importo (€) <input name="importo" inputmode="decimal"></label>{% endif %}
+  <div class="row" data-solo="lavoro eventi">
     <label>Dalle <input name="inizio" placeholder="hh:mm" pattern="\d{1,2}:\d{2}" value="{{ editing.start | ore if editing }}"></label>
     <label>Alle <input name="fine" placeholder="hh:mm (24:00 per mezzanotte)" pattern="\d{1,2}:\d{2}" value="{{ editing.end | ore if editing }}"></label>
   </div>
@@ -160,7 +189,7 @@
   {% if employer and not editing %}
   <p class="hint" data-solo="eventi">Ferie e malattia: giornate intere (anche un intervallo di date). Permessi e assenze:
     giornata intera o un orario. Extra e mora (mandata a casa, pagata): sempre un orario, un giorno alla volta.</p>
-  <label data-solo="eventi">Nota <input name="note"></label>
+  <label data-solo="eventi soldi">Nota (per una spesa: cosa) <input name="note"></label>
   {% endif %}
   <p class="actions">
     <button>{% if editing %}Salva modifica{% else %}Registra{% endif %}</button>
@@ -170,8 +199,10 @@
 <script>
   (() => {
     const tipo = document.getElementById("tipo");
+    const group = () => tipo.value === "lavoro" ? "lavoro"
+      : ["spesa", "pagamento"].includes(tipo.value) ? "soldi" : "eventi";
     const show = () => document.querySelectorAll("#registra [data-solo]").forEach(el => {
-      el.hidden = (el.dataset.solo === "lavoro") !== (tipo.value === "lavoro");
+      el.hidden = !el.dataset.solo.split(" ").includes(group());
     });
     tipo.addEventListener("change", show);
     show();

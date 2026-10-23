@@ -15,7 +15,9 @@ from tata.models import (
     Rapporto,
     Session,
     Span,
+    Spesa,
     TfrAdvance,
+    WagePayment,
 )
 from tata.payslip import Payslip
 
@@ -58,6 +60,20 @@ CREATE TABLE IF NOT EXISTS tfr_advance (
     day TEXT NOT NULL,
     amount TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS spesa (
+    id INTEGER PRIMARY KEY,
+    contract_id INTEGER NOT NULL REFERENCES contract (id),
+    day TEXT NOT NULL,
+    importo TEXT NOT NULL,
+    descrizione TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS wage_payment (
+    id INTEGER PRIMARY KEY,
+    contract_id INTEGER NOT NULL REFERENCES contract (id),
+    day TEXT NOT NULL,
+    importo TEXT NOT NULL,
+    nota TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS punch (
     id INTEGER PRIMARY KEY,
     contract_id INTEGER NOT NULL REFERENCES contract (id),
@@ -92,7 +108,8 @@ CREATE TABLE IF NOT EXISTS session (
 """
 # PRAGMA user_version. 1: rapporti. 2: login sessions (a new table: the schema adds it).
 # 3: worker login names. 4: km per turno (a new table: the schema adds it).
-VERSION = 4
+# 5: spese, wage payments (new tables) and the contract's `trattiene` (REWRITES).
+VERSION = 5
 
 # Run on a database of version 1 or later, before the schema, to reach the given version.
 UPGRADES = {
@@ -100,6 +117,19 @@ UPGRADES = {
     3: [
         "ALTER TABLE contract ADD COLUMN worker_user TEXT",
         "UPDATE contract SET worker_hash = NULL",
+    ],
+}
+
+# Run after the schema and the copy from version 0, to reach the given version: rewrites of
+# the stored JSON. Idempotent, so a version 0 database gets them all.
+REWRITES = {
+    # Contracts so far withheld her share; finalized payslips: rimborso -> rimborsi.
+    5: [
+        "UPDATE contract SET data = json_set(data, '$.trattiene', json('true'))",
+        "UPDATE payslip_final SET data = json_set(json_remove(data, '$.rimborso', "
+        "'$.lordo_da_pagare'), '$.rimborsi', CASE WHEN json_type(data, '$.rimborso') = 'object' "
+        "THEN json_array(json(json_extract(data, '$.rimborso'))) ELSE json('[]') END, "
+        "'$.contract.trattiene', json('true')) WHERE json_type(data, '$.rimborsi') IS NULL",
     ],
 }
 
@@ -139,6 +169,10 @@ def _upgrade(db: sqlite3.Connection) -> None:
         for t in old:
             db.execute(COPY_FROM_V0[t])
             db.execute(f"DROP TABLE {t}_v0")
+        for statement in (
+            s for step in range(version + 1, VERSION + 1) for s in REWRITES.get(step, [])
+        ):
+            db.execute(statement)
         db.execute(f"PRAGMA user_version = {VERSION}")
         db.execute("COMMIT")
     except BaseException:
@@ -440,6 +474,68 @@ class RapportoStore:
             (self.id, day.isoformat(), str(amount)),
         )
         return TfrAdvance(id=new_id, day=day, amount=amount)
+
+    # ---- spese: reimbursed in the payslip of their month
+
+    def spese(self) -> list[Spesa]:
+        rows = self._read(
+            "SELECT id, day, importo, descrizione FROM spesa WHERE contract_id = ? "
+            "ORDER BY day, id",
+            (self.id,),
+        )
+        return [
+            Spesa.model_validate({"id": i, "day": d, "importo": a, "descrizione": t})
+            for i, d, a, t in rows
+        ]
+
+    def add_spesa(self, day: date, importo: Decimal, descrizione: str) -> Spesa:
+        self._refuse_if_final(day)
+        draft = Spesa(id=0, day=day, importo=importo, descrizione=descrizione)  # validates
+        new_id = self._write(
+            "INSERT INTO spesa (contract_id, day, importo, descrizione) VALUES (?, ?, ?, ?)",
+            (self.id, day.isoformat(), str(importo), descrizione),
+        )
+        return draft.model_copy(update={"id": new_id})
+
+    def delete_spesa(self, spesa_id: int) -> date:
+        """Deletes the spesa and returns its day. Raises KeyError if it does not exist."""
+        found = [s for s in self.spese() if s.id == spesa_id]
+        if not found:
+            raise KeyError(spesa_id)
+        self._refuse_if_final(found[0].day)
+        with closing(sqlite3.connect(self._path)) as db, db:
+            db.execute("DELETE FROM spesa WHERE id = ?", (spesa_id,))
+        return found[0].day
+
+    # ---- what the employer paid her: no month, the balance sums them
+
+    def wage_payments(self) -> list[WagePayment]:
+        rows = self._read(
+            "SELECT id, day, importo, nota FROM wage_payment WHERE contract_id = ? "
+            "ORDER BY day, id",
+            (self.id,),
+        )
+        return [
+            WagePayment.model_validate({"id": i, "day": d, "importo": a, "nota": n})
+            for i, d, a, n in rows
+        ]
+
+    def add_wage_payment(self, day: date, importo: Decimal, nota: str) -> WagePayment:
+        draft = WagePayment(id=0, day=day, importo=importo, nota=nota)  # validates
+        new_id = self._write(
+            "INSERT INTO wage_payment (contract_id, day, importo, nota) VALUES (?, ?, ?, ?)",
+            (self.id, day.isoformat(), str(importo), nota),
+        )
+        return draft.model_copy(update={"id": new_id})
+
+    def delete_wage_payment(self, payment_id: int) -> date:
+        """Deletes the payment and returns its day. Raises KeyError if it does not exist."""
+        found = [p for p in self.wage_payments() if p.id == payment_id]
+        if not found:
+            raise KeyError(payment_id)
+        with closing(sqlite3.connect(self._path)) as db, db:
+            db.execute("DELETE FROM wage_payment WHERE id = ?", (payment_id,))
+        return found[0].day
 
 
 class Store:

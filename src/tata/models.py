@@ -106,6 +106,9 @@ class Contract(Frozen):
     livello: Livello
     paga_oraria: Decimal  # paga globale di fatto agreed, before scatti
     tab_h: bool  # baby sitter of a child under 6 (CCNL art. 34 c.3)
+    # The employer withholds the worker's INPS and Cassa Colf share from her pay; False: he
+    # pays her the lordo and bears that share himself (vjt 23/10: a choice, not a rule).
+    trattiene: bool
     assunzione: date
     cessazione: date | None
     patrono_mese: int
@@ -208,6 +211,40 @@ class Mileage(Frozen):
     def _check(self) -> "Mileage":
         if self.km_turno <= 0 or self.euro_km <= 0:
             raise ValueError("rimborso trasferte: km e €/km devono essere positivi")
+        return self
+
+
+class Spesa(Frozen):
+    """An expense she paid for the employer (a snack out with the children): reimbursed in
+    the month of its day, not income: outside lordo, INPS, TFR."""
+
+    id: int
+    day: date
+    importo: Decimal
+    descrizione: str
+
+    @model_validator(mode="after")
+    def _check(self) -> "Spesa":
+        if not self.importo.is_finite() or self.importo <= 0:
+            raise ValueError("la spesa deve avere un importo positivo")
+        if not self.descrizione.strip():
+            raise ValueError("la spesa deve avere una descrizione")
+        return self
+
+
+class WagePayment(Frozen):
+    """Money the employer gave her: any amount on any day (acconti too), never tied to a
+    month; the balance sets it against everything owed since the hire."""
+
+    id: int
+    day: date
+    importo: Decimal
+    nota: str
+
+    @model_validator(mode="after")
+    def _check(self) -> "WagePayment":
+        if not self.importo.is_finite() or self.importo <= 0:
+            raise ValueError("il pagamento deve avere un importo positivo")
         return self
 
 

@@ -18,14 +18,17 @@
   </tbody>
   <tfoot>
     <tr class="total"><td colspan="3">Retribuzione lorda</td><td>{{ slip.lordo | eur }}</td></tr>
-    <tr><td colspan="3">Contributi INPS a carico lavoratore ({{ slip.ore_retribuite | hm }} × {{ slip.contributo.lavoratore | num }})</td><td>− {{ slip.trattenuta_inps | eur }}</td></tr>
-    <tr><td colspan="3">Cassa Colf a carico lavoratore ({{ slip.ore_retribuite | hm }} × {{ slip.cassa_colf.lavoratore | num }})</td><td>− {{ slip.trattenuta_cassa_colf | eur }}</td></tr>
+    {%- set sign = "−" if slip.contract.trattiene else "" %}
+    {%- set borne = "" if slip.contract.trattiene else ", pagati dal datore e non trattenuti" %}
+    <tr><td colspan="3">Contributi INPS a carico lavoratore ({{ slip.ore_retribuite | hm }} × {{ slip.contributo.lavoratore | num }}{{ borne }})</td><td>{{ sign }} {{ slip.trattenuta_inps | eur }}</td></tr>
+    <tr><td colspan="3">Cassa Colf a carico lavoratore ({{ slip.ore_retribuite | hm }} × {{ slip.cassa_colf.lavoratore | num }}{{ borne }})</td><td>{{ sign }} {{ slip.trattenuta_cassa_colf | eur }}</td></tr>
     <tr class="total net"><td colspan="3">Netto</td><td>{{ slip.netto | eur }}</td></tr>
-    {% if slip.rimborso %}
-    <tr><td colspan="3">{{ slip.rimborso.voce }}: {{ slip.rimborso.quantita | num }} {{ slip.rimborso.unita }} a {{ slip.rimborso.tariffa | string | replace(".", ",") }} €/km, arrotondato per turno</td><td>+ {{ slip.rimborso.importo | eur }}</td></tr>
+    {% for r in slip.rimborsi %}
+    <tr><td colspan="3">{{ r.voce }}{% if r.unita == "km" %}: {{ r.quantita | num }} km a {{ r.tariffa | string | replace(".", ",") }} €/km, arrotondato per turno{% endif %}</td><td>+ {{ r.importo | eur }}</td></tr>
+    {% endfor %}
+    {% if slip.rimborsi %}
     <tr class="total net"><td colspan="3">Da pagare</td><td>{{ slip.da_pagare | eur }}</td></tr>
     {% endif %}
-    <tr class="total"><td colspan="3">Lordo da pagare (lordo{% if slip.rimborso %} + rimborso{% endif %}, senza trattenute)</td><td>{{ slip.lordo_da_pagare | eur }}</td></tr>
   </tfoot>
 </table>
 

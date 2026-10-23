@@ -11,13 +11,13 @@ from decimal import Decimal
 
 import pytest
 
-from tata.models import Contract, Event, EventKind, Mileage
-from tata.payslip import Payslip, compute_payslip, rimborso_line
+from tata.models import Contract, Event, EventKind, Mileage, Spesa
+from tata.payslip import Payslip, compute_payslip, rimborso_line, spesa_line
 from tests.helpers import STANDARD, contract, event, rates_2026, standard_contract
 
 
 def payslip(worker: Contract, events_: list[Event], year: int, month: int) -> Payslip:
-    return compute_payslip(worker, events_, year, month, rates_2026(), None)
+    return compute_payslip(worker, events_, year, month, rates_2026(), [])
 
 
 def line(slip: Payslip, voce: str) -> Decimal:
@@ -263,8 +263,8 @@ def test_mora_pays_exactly_as_the_schedule() -> None:
     worker = standard_contract(date(2026, 10, 12))
     mora = event(date(2026, 10, 13), EventKind.MORA, "15:45-18:00")
     rates = rates_2026()
-    assert compute_payslip(worker, [mora], 2026, 10, rates, None) == compute_payslip(
-        worker, [], 2026, 10, rates, None
+    assert compute_payslip(worker, [mora], 2026, 10, rates, []) == compute_payslip(
+        worker, [], 2026, 10, rates, []
     )
 
 
@@ -278,8 +278,12 @@ def test_rimborso_is_paid_on_top_of_the_netto_and_nothing_else() -> None:
     # 12 + 12 + 30 = 54 km.
     assert (rimborso.quantita, rimborso.unita, rimborso.tariffa) == (54, "km", Decimal("0.4463"))
     assert rimborso.importo == Decimal("24.11")
-    plain = compute_payslip(worker, [], 2026, 10, rates_2026(), None)
-    slip = compute_payslip(worker, [], 2026, 10, rates_2026(), rimborso)
+    plain = compute_payslip(worker, [], 2026, 10, rates_2026(), [])
+    merenda = spesa_line(
+        Spesa(id=1, day=date(2026, 10, 14), importo=Decimal("7.50"), descrizione="merenda")
+    )
+    assert merenda.voce == "Rimborso spese del 14/10: merenda"
+    slip = compute_payslip(worker, [], 2026, 10, rates_2026(), [rimborso, merenda])
     # Not income (art. 51 c.5 TUIR, trasferta fuori comune): lordo, INPS, TFR, netto unchanged.
     assert (slip.lordo, slip.ore_retribuite, slip.imponibile_tfr, slip.netto) == (
         plain.lordo,
@@ -287,10 +291,26 @@ def test_rimborso_is_paid_on_top_of_the_netto_and_nothing_else() -> None:
         plain.imponibile_tfr,
         plain.netto,
     )
-    assert slip.da_pagare == plain.netto + Decimal("24.11")
-    assert slip.lordo_da_pagare == plain.lordo + Decimal("24.11")
-    assert plain.lordo_da_pagare == plain.lordo
+    # 24,11 of trasferte + 7,50 of merenda = 31,61 on top of the netto.
+    assert slip.da_pagare == plain.netto + Decimal("31.61")
     assert plain.da_pagare == plain.netto
+
+
+def test_paying_the_lordo_leaves_her_share_to_the_employer() -> None:
+    withheld = standard_contract(date(2026, 10, 12))
+    rates = rates_2026()
+    usual = compute_payslip(withheld, [], 2026, 10, rates, [])
+    lordo = compute_payslip(
+        withheld.model_copy(update={"trattiene": False}), [], 2026, 10, rates, []
+    )
+    # Her share is still owed to INPS (the quarterly bollettino is the same): only who bears it
+    # changes. Not withheld, the netto is the lordo (vjt 23/10).
+    assert (lordo.trattenuta_inps, lordo.trattenuta_cassa_colf) == (
+        usual.trattenuta_inps,
+        usual.trattenuta_cassa_colf,
+    )
+    assert usual.netto == usual.lordo - usual.trattenuta_inps - usual.trattenuta_cassa_colf
+    assert lordo.netto == lordo.da_pagare == lordo.lordo == usual.lordo
 
 
 def test_no_turni_no_rimborso() -> None:
