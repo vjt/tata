@@ -42,6 +42,7 @@ from tata.models import (
     Event,
     EventKind,
     Frozen,
+    Gestione,
     Livello,
     Mileage,
     Payment,
@@ -96,6 +97,11 @@ HA_VARS = ("TATA_HA_URL", "TATA_HA_TOKEN")
 MILEAGE_VARS = ("TATA_RIMBORSO_KM", "TATA_RIMBORSO_EURO_KM")
 RETURN_TO = re.compile(r"/r/\d+/(presenza|mese)/\d{4}/\d{1,2}")
 LAVORO = "lavoro"  # the registra form's tipo for worked time (a punch); the others are events
+GESTIONI = [
+    (Gestione.NETTO, "trattengo i suoi contributi dalla paga (CCNL)"),
+    (Gestione.LORDO, "le pago il lordo, i suoi contributi li pago io"),
+    (Gestione.CONSULENTE, "paghe e contributi a cura del consulente: qui solo ore e rimborsi"),
+]
 SPESA = "spesa"  # ... an expense to reimburse
 PAGAMENTO = "pagamento"  # ... money given to her
 SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
@@ -439,6 +445,7 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "ha_entity": "",
                 "action": "/rapporti",
                 "livelli": list(Livello),
+                "gestioni": GESTIONI,
                 "giorni": GIORNI,
             },
         )
@@ -531,6 +538,7 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "worker_user": rapporto.worker_user,
                 "action": f"/r/{cid}/contratto",
                 "livelli": list(Livello),
+                "gestioni": GESTIONI,
                 "giorni": GIORNI,
             },
         )
@@ -914,6 +922,7 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "slips": year_payslips(contract, year, 12, src),
                 "current": current,
                 "tfr": tfr(contract, rs.advances(), year, last_month, src, book),
+                "consulente": contract.gestione is Gestione.CONSULENTE,
                 "advances": [a for a in rs.advances() if a.day.year == year],
                 "mesi": MESI,
             },
@@ -956,6 +965,8 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
     def attestazione_pdf(cid: int, year: int) -> Response:
         rs = store.rapporto(cid)
         contract = rs.contract()
+        if contract.gestione is Gestione.CONSULENTE:
+            raise ValueError("paghe e contributi a cura del consulente: l'attestazione la fa lui")
         html = templates.get_template("attestazione_pdf.html").render(
             att=attestazione(contract, year, source(rs, contract)),
             mesi=MESI,
@@ -1065,7 +1076,7 @@ def _contract(form: FormData) -> Contract:
         livello=Livello(_field(form, "livello")),
         paga_oraria=_decimal(_field(form, "paga_oraria")),
         tab_h="tab_h" in form,
-        trattiene="trattiene" in form,
+        gestione=Gestione(_field(form, "gestione")),
         assunzione=date.fromisoformat(_field(form, "assunzione")),
         cessazione=date.fromisoformat(cessazione) if cessazione else None,
         patrono_mese=month,

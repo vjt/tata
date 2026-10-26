@@ -25,6 +25,16 @@ class Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+class Gestione(StrEnum):
+    """Who does what with her pay (vjt 23/10, 26/10)."""
+
+    NETTO = "netto"  # the employer withholds her INPS and Cassa Colf share (CCNL)
+    LORDO = "lordo"  # he pays her the lordo and bears her share: netto = lordo
+    # Payroll and contributions done by a consultant: tata counts worked hours x paga
+    # oraria, rimborsi and payments only; no INPS, ratei, attestazione.
+    CONSULENTE = "consulente"
+
+
 class Livello(StrEnum):
     A = "A"
     AS = "AS"
@@ -106,9 +116,7 @@ class Contract(Frozen):
     livello: Livello
     paga_oraria: Decimal  # paga globale di fatto agreed, before scatti
     tab_h: bool  # baby sitter of a child under 6 (CCNL art. 34 c.3)
-    # The employer withholds the worker's INPS and Cassa Colf share from her pay; False: he
-    # pays her the lordo and bears that share himself (vjt 23/10: a choice, not a rule).
-    trattiene: bool
+    gestione: Gestione
     assunzione: date
     cessazione: date | None
     patrono_mese: int

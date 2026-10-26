@@ -27,7 +27,7 @@ CONTRACT_FORM = {
     "lavoratore_nome": "Carmen Necchi",
     "lavoratore_cf": "NCCCMN95A41D612Y",
     "livello": "BS",
-    "trattiene": "on",  # her share withheld, as usual
+    "gestione": "netto",  # her share withheld, as usual
     "paga_oraria": "8,86",
     "assunzione": "2026-10-12",
     "cessazione": "",
@@ -1087,7 +1087,7 @@ def test_spese_payments_and_the_balance(tmp_path: Path) -> None:
     assert "13/10/2026 · pagato 10,00 € · acconto" in page
     assert "dovuto 19,17 €, pagato 10,00 €,\n    <b>da pagare 9,17 €</b>" in page
     # Paying her the lordo (vjt 23/10): her share is the employer's, the netto is the lordo.
-    lordo = {k: v for k, v in CONTRACT_FORM.items() if k != "trattiene"}
+    lordo = {**CONTRACT_FORM, "gestione": "lordo"}
     assert c.post("/r/1/contratto", data=lordo).status_code == 303
     page = c.get("/r/1/mese/2026/10").text
     assert "pagati dal datore e non trattenuti" in page
@@ -1111,3 +1111,24 @@ def test_spese_payments_and_the_balance(tmp_path: Path) -> None:
         assert c.post(f"/r/1/pagamenti/{p.id}/elimina").status_code == 303
     assert Store(tmp_path / "tata.sqlite").rapporto(1).spese() == []
     assert "<b>da pagare 12,01 €</b>" in c.get("/r/1/mese/2026/10").text  # 6,65 + 5,36
+
+
+def test_consulente_hides_contributions_and_the_attestazione(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 19, 0))
+    form = {**CONTRACT_FORM, "gestione": "consulente"}
+    assert c.post("/r/1/contratto", data=form).status_code == 303
+    assert 'value="consulente" selected' in c.get("/r/1/contratto").text
+    c.post(
+        "/r/1/registra",
+        data={"tipo": "lavoro", "dal": "2026-10-13", "inizio": "08:00", "fine": "08:45"},
+    )
+    page = c.get("/r/1/mese/2026/10").text.split("Lavorato")[1].split("Pianificato")[0]
+    # 45 min x 8,86 = 6,645 -> 6,65, nothing withheld; + 5,36 trasferta = 12,01.
+    assert "<td>Ore lavorate</td><td>45 min</td>" in page
+    assert '<td colspan="3">Da pagare</td><td>12,01 €' in page
+    assert "a carico lavoratore" not in page and "Tredicesima" not in page
+    assert "a cura del consulente" in page
+    year = c.get("/r/1/anno/2026").text
+    assert "Contributi INPS" not in year and "<h2>TFR</h2>" not in year
+    assert "attestazione.pdf" not in year
+    assert c.get("/r/1/anno/2026/attestazione.pdf").status_code == 400

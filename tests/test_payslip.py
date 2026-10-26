@@ -11,7 +11,7 @@ from decimal import Decimal
 
 import pytest
 
-from tata.models import Contract, Event, EventKind, Mileage, Spesa
+from tata.models import Contract, Event, EventKind, Gestione, Mileage, Spesa
 from tata.payslip import Payslip, compute_payslip, rimborso_line, spesa_line
 from tests.helpers import STANDARD, contract, event, rates_2026, standard_contract
 
@@ -301,7 +301,7 @@ def test_paying_the_lordo_leaves_her_share_to_the_employer() -> None:
     rates = rates_2026()
     usual = compute_payslip(withheld, [], 2026, 10, rates, [])
     lordo = compute_payslip(
-        withheld.model_copy(update={"trattiene": False}), [], 2026, 10, rates, []
+        withheld.model_copy(update={"gestione": Gestione.LORDO}), [], 2026, 10, rates, []
     )
     # Her share is still owed to INPS (the quarterly bollettino is the same): only who bears it
     # changes. Not withheld, the netto is the lordo (vjt 23/10).
@@ -311,6 +311,30 @@ def test_paying_the_lordo_leaves_her_share_to_the_employer() -> None:
     )
     assert usual.netto == usual.lordo - usual.trattenuta_inps - usual.trattenuta_cassa_colf
     assert lordo.netto == lordo.da_pagare == lordo.lordo == usual.lordo
+
+
+def test_consulente_counts_worked_hours_at_the_paga_oraria_and_nothing_else() -> None:
+    worker = standard_contract(date(2026, 10, 12)).model_copy(
+        update={"gestione": Gestione.CONSULENTE}
+    )
+    ferie = event(date(2026, 10, 13), EventKind.FERIE, None)
+    merenda = spesa_line(
+        Spesa(id=1, day=date(2026, 10, 14), importo=Decimal(22), descrizione="merende")
+    )
+    slip = compute_payslip(worker, [ferie], 2026, 10, rates_2026(), [merenda])
+    # 12-30/10: 15 weekdays x 3 h = 45 h, less the ferie day (unpaid here: the consultant's
+    # business) = 42 h x 8,86 = 372,12. No contributions withheld, no ratei.
+    assert [(li.voce, li.quantita, li.importo) for li in slip.lines] == [
+        ("Ore lavorate", Decimal(42), Decimal("372.12"))
+    ]
+    assert slip.netto == slip.lordo == Decimal("372.12")
+    assert slip.da_pagare == Decimal("394.12")  # + 22 of merende
+    assert (slip.trattenuta_inps, slip.tredicesima_maturata, slip.tfr_quota) == (0, 0, 0)
+    # The CCNL minimum still holds.
+    with pytest.raises(ValueError, match="sotto il minimo"):
+        compute_payslip(
+            worker.model_copy(update={"paga_oraria": Decimal(5)}), [], 2026, 10, rates_2026(), []
+        )
 
 
 def test_no_turni_no_rimborso() -> None:

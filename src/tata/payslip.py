@@ -10,6 +10,7 @@ from tata.models import (
     Event,
     EventKind,
     Frozen,
+    Gestione,
     Livello,
     Mileage,
     Spesa,
@@ -63,7 +64,7 @@ class Payslip(Frozen):
     cassa_colf: Contributo  # per hour
     trattenuta_inps: Decimal  # her INPS share, owed to INPS whoever bears it
     trattenuta_cassa_colf: Decimal  # her Cassa Colf share, likewise
-    netto: Decimal  # lordo - her shares if withheld (contract.trattiene), else the lordo
+    netto: Decimal  # lordo - her shares if withheld (Gestione.NETTO), else the lordo
     rimborsi: tuple[Line, ...]  # trasferte and spese: not income, outside the lordo
     da_pagare: Decimal  # netto + rimborsi
     tredicesima_maturata: Decimal  # this calendar year, up to this month
@@ -90,6 +91,8 @@ def compute_payslip(
     `rimborsi` (rimborso_line, spesa_line) are paid on top of the netto, outside every base.
     """
     paga = pay_breakdown(contract, year, month, rates)
+    if contract.gestione is Gestione.CONSULENTE:
+        return _consulente_payslip(contract, events, year, month, rates, paga, rimborsi)
     p = paga.oraria
     weekly = contract.weekly_minutes()
     day_share = Decimal(weekly) / 6  # minutes paid per festività / ferie day
@@ -149,7 +152,9 @@ def compute_payslip(
     contributo = rates.inps.contributo(oraria_effettiva, weekly)
     trattenuta_inps = euro(ore * contributo.lavoratore)
     trattenuta_cassa = euro(ore * rates.inps.cassa_colf.lavoratore)
-    netto = lordo - (trattenuta_inps + trattenuta_cassa if contract.trattiene else 0)
+    netto = lordo - (
+        trattenuta_inps + trattenuta_cassa if contract.gestione is Gestione.NETTO else 0
+    )
 
     return Payslip(
         year=year,
@@ -176,6 +181,51 @@ def compute_payslip(
         permessi_eccedenti=goduti > spettanti,
         imponibile_tfr=imponibile_tfr,
         tfr_quota=euro(imponibile_tfr / rates.ccnl.tfr_divisore),
+    )
+
+
+def _consulente_payslip(
+    contract: Contract,
+    events: list[Event],
+    year: int,
+    month: int,
+    rates: Rates,
+    paga: Paga,
+    rimborsi: list[Line],
+) -> Payslip:
+    """Gestione.CONSULENTE: worked minutes (any bucket) x paga oraria, nothing else. The
+    consultant computes contributions and ratei: tata's are zero, and the pages hide them."""
+    days = month_work(contract, events, year, month, rates)
+    minutes = sum(m for d in days for m in d.buckets.values())
+    lines = [_hours_line("Ore lavorate", Decimal(minutes), contract.paga_oraria)] if minutes else []
+    lordo = sum((li.importo for li in lines), Decimal(0))
+    oraria_effettiva = euro(contract.paga_oraria * 13 / 12)
+    none = Decimal(0)
+    return Payslip(
+        year=year,
+        month=month,
+        contract=contract,
+        paga=paga,
+        lines=tuple(lines),
+        lordo=lordo,
+        ore_retribuite=euro(Decimal(minutes) / 60),
+        oraria_effettiva=oraria_effettiva,
+        contributo=rates.inps.contributo(oraria_effettiva, contract.weekly_minutes()),
+        cassa_colf=rates.inps.cassa_colf,
+        trattenuta_inps=none,
+        trattenuta_cassa_colf=none,
+        netto=lordo,
+        rimborsi=tuple(rimborsi),
+        da_pagare=lordo + sum((r.importo for r in rimborsi), none),
+        tredicesima_maturata=none,
+        ferie_maturate=none,
+        ferie_godute=none,
+        ferie_residue=none,
+        permessi_spettanti=0,
+        permessi_goduti=0,
+        permessi_eccedenti=False,
+        imponibile_tfr=none,
+        tfr_quota=none,
     )
 
 

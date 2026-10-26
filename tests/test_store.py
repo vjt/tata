@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tata.models import EventKind, Mileage, Payment
+from tata.models import EventKind, Gestione, Mileage, Payment
 from tata.payslip import compute_payslip, rimborso_line
 from tata.store import RapportoStore, Store
 from tests.helpers import rates_2026, span, standard_contract
@@ -303,7 +303,7 @@ def test_version_0_becomes_rapporto_1(tmp_path: Path) -> None:
 
 
 def test_version_4_contracts_withhold_and_finals_get_rimborsi(tmp_path: Path) -> None:
-    # Version 4 had no `trattiene` (her share was always withheld) and one optional rimborso
+    # Version 4 had no `gestione` (her share was always withheld) and one optional rimborso
     # line per payslip, plus a lordo_da_pagare: the upgrade rewrites the stored JSON.
     path = tmp_path / "tata.sqlite"
     worker = standard_contract(date(2026, 10, 12))
@@ -316,11 +316,11 @@ def test_version_4_contracts_withhold_and_finals_get_rimborsi(tmp_path: Path) ->
     with closing(sqlite3.connect(path)) as db, db:
         for (data,) in db.execute("SELECT data FROM contract").fetchall():
             old = json.loads(data)
-            del old["trattiene"]
+            del old["gestione"]
             db.execute("UPDATE contract SET data = ?", (json.dumps(old),))
         for month, data in db.execute("SELECT month, data FROM payslip_final").fetchall():
             old = json.loads(data)
-            del old["contract"]["trattiene"]
+            del old["contract"]["gestione"]
             rimborsi = old.pop("rimborsi")
             old["rimborso"] = rimborsi[0] if rimborsi else None
             old["lordo_da_pagare"] = "1.00"
@@ -331,11 +331,31 @@ def test_version_4_contracts_withhold_and_finals_get_rimborsi(tmp_path: Path) ->
         db.execute("DROP TABLE wage_payment")
         db.execute("PRAGMA user_version = 4")
     rs = Store(path).rapporto(1)
-    assert rs.contract() == worker and worker.trattiene
+    assert rs.contract() == worker and worker.gestione is Gestione.NETTO
     assert rs.final_payslip(2026, 10) == with_trip
     final_nov = rs.final_payslip(2026, 11)
     assert final_nov is not None and final_nov.rimborsi == ()
     assert rs.spese() == [] and rs.wage_payments() == []
+
+
+def test_version_5_trattiene_becomes_gestione(tmp_path: Path) -> None:
+    path = tmp_path / "tata.sqlite"
+    worker = standard_contract(date(2026, 10, 12)).model_copy(update={"gestione": Gestione.LORDO})
+    s = Store(path).rapporto(Store(path).add_rapporto(worker))
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), []))
+    with closing(sqlite3.connect(path)) as db, db:
+        for table, key in (("contract", None), ("payslip_final", "contract")):
+            for (data,) in db.execute(f"SELECT data FROM {table}").fetchall():
+                old = json.loads(data)
+                c = old[key] if key else old
+                del c["gestione"]
+                c["trattiene"] = False  # version 5: the lordo, as a boolean
+                db.execute(f"UPDATE {table} SET data = ?", (json.dumps(old),))
+        db.execute("PRAGMA user_version = 5")
+    rs = Store(path).rapporto(1)
+    assert rs.contract() == worker
+    final = rs.final_payslip(2026, 10)
+    assert final is not None and final.contract == worker
 
 
 def test_spese_and_wage_payments(tmp_path: Path) -> None:

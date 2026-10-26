@@ -7,6 +7,7 @@
   <a href="{{ base }}/anno/{{ year + 1 }}">›</a>
 </div>
 
+{% if not consulente %}
 <section class="card">
   <h2>Contributi INPS e Cassa Colf</h2>
   <div class="scroll">
@@ -39,6 +40,7 @@
   </div>
   <p class="hint">Gli importi registrati come pagati alimentano la deduzione (principio di cassa).</p>
 </section>
+{% endif %}
 
 <section class="card">
   <h2>Retribuzioni</h2>
@@ -60,6 +62,7 @@
   </div>
 </section>
 
+{% if not consulente %}
 <section class="card">
   <h2>TFR</h2>
   <p class="hint">Fondo maturato fino al mese corrente.</p>
@@ -79,11 +82,12 @@
   </form>
   {% for a in advances %}<p>Anticipo del {{ a.day | dmy }}: {{ a.amount | eur }}</p>{% endfor %}
 </section>
+{% endif %}
 
 <section class="card">
   <h2>Fine anno</h2>
   <p class="actions">
-    <a class="button" href="{{ base }}/anno/{{ year }}/attestazione.pdf">Attestazione retribuzioni (730 del lavoratore)</a>
+    {% if not consulente %}<a class="button" href="{{ base }}/anno/{{ year }}/attestazione.pdf">Attestazione retribuzioni (730 del lavoratore)</a>{% endif %}
     <a class="button" href="/anno/{{ year }}/deduzioni.yaml">Deduzioni datore (YAML)</a>
   </p>
 </section>

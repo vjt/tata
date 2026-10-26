@@ -109,7 +109,8 @@ CREATE TABLE IF NOT EXISTS session (
 # PRAGMA user_version. 1: rapporti. 2: login sessions (a new table: the schema adds it).
 # 3: worker login names. 4: km per turno (a new table: the schema adds it).
 # 5: spese, wage payments (new tables) and the contract's `trattiene` (REWRITES).
-VERSION = 5
+# 6: `trattiene` becomes `gestione` (REWRITES).
+VERSION = 6
 
 # Run on a database of version 1 or later, before the schema, to reach the given version.
 UPGRADES = {
@@ -130,6 +131,13 @@ REWRITES = {
         "'$.lordo_da_pagare'), '$.rimborsi', CASE WHEN json_type(data, '$.rimborso') = 'object' "
         "THEN json_array(json(json_extract(data, '$.rimborso'))) ELSE json('[]') END, "
         "'$.contract.trattiene', json('true')) WHERE json_type(data, '$.rimborsi') IS NULL",
+    ],
+    # trattiene (bool) -> gestione: netto (withheld) or lordo.
+    6: [
+        f"UPDATE {table} SET data = json_remove(json_set(data, '{path}.gestione', "
+        f"CASE json_extract(data, '{path}.trattiene') WHEN 0 THEN 'lordo' ELSE 'netto' END), "
+        f"'{path}.trattiene') WHERE json_type(data, '{path}.trattiene') IS NOT NULL"
+        for table, path in (("contract", "$"), ("payslip_final", "$.contract"))
     ],
 }
 

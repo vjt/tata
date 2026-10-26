@@ -5,7 +5,7 @@ from decimal import Decimal
 from itertools import count
 from pathlib import Path
 
-from tata.models import Contract, Event, EventKind, Livello, Span
+from tata.models import Contract, Event, EventKind, Gestione, Livello, Span
 from tata.rates import Rates, RatesBook
 
 RATES_DIR = Path(__file__).parent.parent / "rates"
@@ -46,7 +46,7 @@ def contract(
         livello=Livello.BS,
         paga_oraria=Decimal(paga),
         tab_h=tab_h,
-        trattiene=True,
+        gestione=Gestione.NETTO,
         assunzione=assunzione,
         cessazione=cessazione,
         patrono_mese=6,

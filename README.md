@@ -86,9 +86,11 @@ Nella pagina del mese:
   mese. La pagina del mese mostra il saldo dall'assunzione a oggi: dovuto (il *da pagare* di
   ogni mese, quello in corso per il lavorato fin qui) meno pagato; acconti e parziali vanno
   bene.
-- **Paga lorda o netta**: nel contratto, *trattengo i contributi a carico della lavoratrice*.
-  Senza, le si paga il lordo: il netto è il lordo, la sua quota INPS e Cassa Colf la paga il
-  datore (all'INPS si versa lo stesso), e l'attestazione lo dichiara.
+- **Paga e contributi**, nel contratto: *trattengo i suoi contributi* (netto, come da CCNL);
+  *le pago il lordo* (la sua quota INPS e Cassa Colf la paga il datore, all'INPS si versa lo
+  stesso, e l'attestazione lo dichiara); *a cura del consulente*: paghe e contributi li fa il
+  consulente, tata conta solo ore lavorate × paga oraria, rimborsi e pagamenti, e nasconde
+  INPS, ratei, TFR e attestazione.
 - **Si paga il timbrato**: il prospetto (sezione *Lavorato*) conta solo le ore timbrate, più
   festività, ferie, permessi, malattia e mandata a casa confermati. Niente timbrature, niente
   paga: i giorni ancora da venire e i vuoti non confermati non sono pagati. La sezione

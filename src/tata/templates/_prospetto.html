@@ -18,10 +18,11 @@
   </tbody>
   <tfoot>
     <tr class="total"><td colspan="3">Retribuzione lorda</td><td>{{ slip.lordo | eur }}</td></tr>
-    {%- set sign = "−" if slip.contract.trattiene else "" %}
-    {%- set borne = "" if slip.contract.trattiene else ", pagati dal datore e non trattenuti" %}
-    <tr><td colspan="3">Contributi INPS a carico lavoratore ({{ slip.ore_retribuite | hm }} × {{ slip.contributo.lavoratore | num }}{{ borne }})</td><td>{{ sign }} {{ slip.trattenuta_inps | eur }}</td></tr>
-    <tr><td colspan="3">Cassa Colf a carico lavoratore ({{ slip.ore_retribuite | hm }} × {{ slip.cassa_colf.lavoratore | num }}{{ borne }})</td><td>{{ sign }} {{ slip.trattenuta_cassa_colf | eur }}</td></tr>
+    {%- set lordo = slip.contract.gestione == "lordo" %}
+    {%- if slip.contract.gestione != "consulente" %}
+    <tr><td colspan="3">Contributi INPS a carico lavoratore ({{ slip.ore_retribuite | hm }} × {{ slip.contributo.lavoratore | num }}{% if lordo %}, pagati dal datore e non trattenuti{% endif %})</td><td>{% if not lordo %}−{% endif %} {{ slip.trattenuta_inps | eur }}</td></tr>
+    <tr><td colspan="3">Cassa Colf a carico lavoratore ({{ slip.ore_retribuite | hm }} × {{ slip.cassa_colf.lavoratore | num }}{% if lordo %}, pagati dal datore e non trattenuti{% endif %})</td><td>{% if not lordo %}−{% endif %} {{ slip.trattenuta_cassa_colf | eur }}</td></tr>
+    {%- endif %}
     <tr class="total net"><td colspan="3">Netto</td><td>{{ slip.netto | eur }}</td></tr>
     {% for r in slip.rimborsi %}
     <tr><td colspan="3">{{ r.voce }}{% if r.unita == "km" %}: {{ r.quantita | num }} km a {{ r.tariffa | string | replace(".", ",") }} €/km, arrotondato per turno{% endif %}</td><td>+ {{ r.importo | eur }}</td></tr>
@@ -32,6 +33,10 @@
   </tfoot>
 </table>
 
+{% if slip.contract.gestione == "consulente" %}
+<p class="hint">Paghe e contributi a cura del consulente: qui solo le ore lavorate per la paga oraria,
+  i rimborsi e i pagamenti.</p>
+{% else %}
 <table class="ratei">
   <tr><th>Tredicesima maturata nell'anno</th><td>{{ slip.tredicesima_maturata | eur }}</td></tr>
   <tr><th>Ferie maturate / godute / residue (gg)</th><td>{{ slip.ferie_maturate | num }} / {{ slip.ferie_godute | num }} / {{ slip.ferie_residue | num }}</td></tr>
@@ -42,3 +47,4 @@
   <tr><th>Retribuzione oraria effettiva (fascia INPS)</th><td>{{ slip.oraria_effettiva | num }} €/h → {{ slip.contributo.totale | num }} €/h</td></tr>
 </table>
 <p class="hint">Il datore di lavoro domestico non è sostituto d'imposta: nessuna ritenuta IRPEF.</p>
+{% endif %}

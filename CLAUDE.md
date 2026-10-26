@@ -73,9 +73,11 @@ Calc modules never touch the DB; the store never computes.
   employer corrects them on the row's ✏️ form (`turno_km`, replacing, not adding).
 - **Spese** (vjt 23/10): an expense she paid for the employer (day, importo, descrizione) is
   another rimborso of its month, outside every base, like the trasferte. Employer only.
-- **Trattiene** (contract flag, vjt 23/10): the employer withholds her INPS + Cassa Colf share
-  (CCNL default) or pays her the lordo and bears it: then netto = lordo, the shares are still
-  owed to INPS, and the attestazione says they were not withheld.
+- **Gestione** (contract, vjt 23/10 and 26/10): `netto`, the employer withholds her INPS +
+  Cassa Colf share (CCNL default); `lordo`, he pays her the lordo and bears it (netto = lordo,
+  shares still owed to INPS, the attestazione says so); `consulente`, payroll and contributions
+  are a consultant's job: the payslip is worked minutes × paga oraria (CCNL minimum still
+  checked) + rimborsi, and the pages hide INPS, ratei, TFR and the attestazione.
 - **Balance**: wage payments (day, importo, nota) belong to no month; the month page shows
   owed since the hire (each month's `da_pagare`, today's as worked so far) − paid.
 - **Wifi presence proposes, never records.** `/presenza` reads the worker's phone tracker from
