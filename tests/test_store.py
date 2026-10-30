@@ -358,6 +358,25 @@ def test_version_5_trattiene_becomes_gestione(tmp_path: Path) -> None:
     assert final is not None and final.contract == worker
 
 
+def test_version_6_contracts_keep_the_rimborso_km(tmp_path: Path) -> None:
+    # Version 6 had no `rimborso_km`: every rapporto so far paid the trasferte.
+    path = tmp_path / "tata.sqlite"
+    worker = standard_contract(date(2026, 10, 12))
+    s = Store(path).rapporto(Store(path).add_rapporto(worker))
+    s.finalize(compute_payslip(worker, [], 2026, 10, rates_2026(), []))
+    with closing(sqlite3.connect(path)) as db, db:
+        for table, key in (("contract", None), ("payslip_final", "contract")):
+            for (data,) in db.execute(f"SELECT data FROM {table}").fetchall():
+                old = json.loads(data)
+                del (old[key] if key else old)["rimborso_km"]
+                db.execute(f"UPDATE {table} SET data = ?", (json.dumps(old),))
+        db.execute("PRAGMA user_version = 6")
+    rs = Store(path).rapporto(1)
+    assert rs.contract() == worker and worker.rimborso_km
+    final = rs.final_payslip(2026, 10)
+    assert final is not None and final.contract == worker
+
+
 def test_spese_and_wage_payments(tmp_path: Path) -> None:
     s = store(tmp_path)
     tue = date(2026, 10, 13)

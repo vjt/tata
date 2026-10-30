@@ -117,6 +117,7 @@ class Contract(Frozen):
     paga_oraria: Decimal  # paga globale di fatto agreed, before scatti
     tab_h: bool  # baby sitter of a child under 6 (CCNL art. 34 c.3)
     gestione: Gestione
+    rimborso_km: bool  # rimborso trasferte for her turni; False: none, whatever the car
     assunzione: date
     cessazione: date | None
     patrono_mese: int

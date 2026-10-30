@@ -70,7 +70,9 @@ Calc modules never touch the DB; the store never computes.
   trattenute, `da_pagare` = netto + rimborsi. Her car by default; a radio (auto propria / auto
   del datore) on the timbra button and on the punch form declares it per turno
   (`employer_car`): the employer's pays nothing. A turno's km are the configured ones unless the
-  employer corrects them on the row's ✏️ form (`turno_km`, replacing, not adding).
+  employer corrects them on the row's ✏️ form (`turno_km`, replacing, not adding). Per rapporto
+  (contract `rimborso_km`, vjt 30/10): off, no turno of it pays a trasferta, whatever the car,
+  and the car radio is hidden.
 - **Spese** (vjt 23/10): an expense she paid for the employer (day, importo, descrizione) is
   another rimborso of its month, outside every base, like the trasferte. Employer only.
 - **Gestione** (contract, vjt 23/10 and 26/10): `netto`, the employer withholds her INPS +

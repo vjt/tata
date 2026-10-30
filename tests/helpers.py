@@ -47,6 +47,7 @@ def contract(
         paga_oraria=Decimal(paga),
         tab_h=tab_h,
         gestione=Gestione.NETTO,
+        rimborso_km=True,
         assunzione=assunzione,
         cessazione=cessazione,
         patrono_mese=6,

@@ -28,6 +28,7 @@ CONTRACT_FORM = {
     "lavoratore_cf": "NCCCMN95A41D612Y",
     "livello": "BS",
     "gestione": "netto",  # her share withheld, as usual
+    "rimborso_km": "on",  # she drives to school: rimborso trasferte
     "paga_oraria": "8,86",
     "assunzione": "2026-10-12",
     "cessazione": "",
@@ -950,6 +951,32 @@ def test_the_car_is_declared_at_the_start_of_the_turno(tmp_path: Path) -> None:
     form = {"tipo": "lavoro", "dal": "2026-10-13", "inizio": "8:00", "fine": "8:45", "auto": "bici"}
     assert c.post("/r/1/registra", data=form).status_code == 400
     assert len(Store(tmp_path / "tata.sqlite").rapporto(1).punches()) == 1  # nothing written
+
+
+def test_a_rapporto_without_rimborso_km_pays_no_trasferta(tmp_path: Path) -> None:
+    c, _ = punching(tmp_path, rome(2026, 10, 13, 15, 44))
+    assert 'name="rimborso_km" checked' in c.get("/r/1/contratto").text
+    form = {k: v for k, v in CONTRACT_FORM.items() if k != "rimborso_km"}  # unchecked
+    assert c.post("/r/1/contratto", data=form).status_code == 303
+    assert 'name="rimborso_km" >' in c.get("/r/1/contratto").text
+    assert 'name="auto"' not in c.get("/r/1/timbra").text  # no car to declare
+    # Her car declared anyway (an old form): still nothing, whatever the car.
+    c.post("/r/1/timbra/inizio", data={"auto": "propria"})
+    c.post(
+        "/r/1/registra",
+        data={"tipo": "lavoro", "dal": "2026-10-13", "inizio": "08:00", "fine": "08:45"},
+    )
+    page = c.get("/r/1/mese/2026/10").text
+    assert 'name="auto"' not in page and "Trasferte del mese" not in page
+    # No car, no trasferta columns: hours, day, span, time (45 min x 8,86 = 6,645 -> 6,65).
+    assert cartellino(page) == [
+        ["45 min", "13/10/2026", "08:00-08:45", "6,65 €"],
+        ["", "13/10/2026", "dalle 15:44 (aperta)", ""],
+    ]
+    morning = min(Store(tmp_path / "tata.sqlite").rapporto(1).punches(), key=lambda p: p.start)
+    assert 'name="km"' not in c.get(f"/r/1/mese/2026/10?modifica={morning.id}").text
+    slip = c.get("/r/1/mese/2026/10").text.split("Lavorato")[1].split("Pianificato")[0]
+    assert "Rimborso trasferte" not in slip
 
 
 class _Cells(HTMLParser):

@@ -23,6 +23,7 @@
     </label>
     <label>Paga oraria (€) <input name="paga_oraria" required inputmode="decimal" value="{{ c.paga_oraria | num if c }}"></label>
     <label class="check"><input type="checkbox" name="tab_h" {{ "checked" if c and c.tab_h }}> baby sitter di bambini sotto i 6 anni (indennità tab. H)</label>
+    <label class="check"><input type="checkbox" name="rimborso_km" {{ "checked" if not c or c.rimborso_km }}> rimborso trasferte (km per turno con la sua auto)</label>
     <label>Paga e contributi
       <select name="gestione">
         {% for value, label in gestioni %}<option value="{{ value }}" {{ "selected" if (c and c.gestione == value) or (not c and value == "netto") }}>{{ label }}</option>{% endfor %}

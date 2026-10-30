@@ -327,7 +327,15 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
 
     def page(rs: RapportoStore, contract: Contract) -> dict[str, object]:
         """What every page of a rapporto needs: its URL prefix and whose it is."""
-        return {"base": f"/r/{rs.id}", "who": contract.lavoratore_nome}
+        return {
+            "base": f"/r/{rs.id}",
+            "who": contract.lavoratore_nome,
+            "rimborso": mileage(contract) is not None,
+        }
+
+    def mileage(contract: Contract) -> Mileage | None:
+        """The rimborso trasferte of the rapporto's turni; None: none, whatever the car."""
+        return settings.mileage if contract.rimborso_km else None
 
     def check_events(contract: Contract, events: list[Event]) -> None:
         """Raise ValueError now, at write time, rather than bricking a month page later."""
@@ -391,9 +399,10 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 return final
             events = paid_events(rs, contract, year, month)
             rimborsi: list[Line] = []
-            if settings.mileage is not None:
+            rate = mileage(contract)
+            if rate is not None:
                 month_turni = turni(rs.punches(), rs.employer_car(), rs.turno_km(), year, month)
-                trips = rimborso_line(settings.mileage, [t.km for t in month_turni if t.own_car])
+                trips = rimborso_line(rate, [t.km for t in month_turni if t.own_car])
                 rimborsi += [trips] if trips is not None else []
             rimborsi += [
                 spesa_line(s) for s in rs.spese() if (s.day.year, s.day.month) == (year, month)
@@ -610,6 +619,7 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             if modifica and not request.state.worker
             else None
         )
+        rate = mileage(contract)
         km = rs.turno_km()
         month_turni = turni(rs.punches(), rs.employer_car(), km, year, month)
         wifi = (
@@ -641,13 +651,11 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "planned": planned,
                 "trips": {t.punch_id: t for t in month_turni},
                 "trip_cost": {
-                    t.punch_id: trip_cost(settings.mileage, t.km)
-                    for t in month_turni
-                    if t.own_car and settings.mileage
+                    t.punch_id: trip_cost(rate, t.km) for t in month_turni if t.own_car and rate
                 },
                 "km": None
-                if editing is None or settings.mileage is None
-                else trip_km(settings.mileage, km.get((editing.day, editing.start < NOON))),
+                if editing is None or rate is None
+                else trip_km(rate, km.get((editing.day, editing.start < NOON))),
                 "time_cost": {
                     p.id: time_cost(slip.paga.oraria, p.end - p.start)
                     for p in rs.punches()
@@ -762,8 +770,9 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         km = _km(form) if edited else None
         save_punch(rs, contract, Punch(id=punch_id, day=day, start=s.start, end=s.end))
         declare_car(rs, day, s.start, car)
-        if km is not None and settings.mileage is not None:
-            same = km == settings.mileage.km_turno  # follows the configuration
+        rate = mileage(contract)
+        if km is not None and rate is not None:
+            same = km == rate.km_turno  # follows the configuration
             rs.set_turno_km(day, s.start < NOON, None if same else km)
         back = form.get("torna")
         if isinstance(back, str) and RETURN_TO.fullmatch(back) and back.startswith(f"/r/{cid}/"):
@@ -1077,6 +1086,7 @@ def _contract(form: FormData) -> Contract:
         paga_oraria=_decimal(_field(form, "paga_oraria")),
         tab_h="tab_h" in form,
         gestione=Gestione(_field(form, "gestione")),
+        rimborso_km="rimborso_km" in form,
         assunzione=date.fromisoformat(_field(form, "assunzione")),
         cessazione=date.fromisoformat(cessazione) if cessazione else None,
         patrono_mese=month,

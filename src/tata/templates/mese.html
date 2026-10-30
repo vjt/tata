@@ -92,7 +92,7 @@
   {% if punches %}
   <div class="scroll">
   <table class="cartellino">
-    <thead><tr><th>Ore</th><th>Giorno</th><th>Orario</th><th>Auto</th><th>Tempo</th><th>Trasferta</th>{% if employer and not final %}<th></th>{% endif %}</tr></thead>
+    <thead><tr><th>Ore</th><th>Giorno</th><th>Orario</th>{% if rimborso %}<th>Auto</th>{% endif %}<th>Tempo</th>{% if rimborso %}<th>Trasferta</th>{% endif %}{% if employer and not final %}<th></th>{% endif %}</tr></thead>
     <tbody>
     {% for p in punches %}
       {%- set t = trips.get(p.id) %}
@@ -100,9 +100,9 @@
         <td><b>{% if p.end is not none %}{{ (p.end - p.start) | durata }}{% endif %}</b></td>
         <td>{{ p.day | dmy }}</td>
         <td>{% if p.end is none %}dalle {{ p.start | ore }} (aperta){% else %}{{ p.span() }}{% endif %}</td>
-        <td>{% if t %}{% if t.own_car %}auto propria{% else %}auto del datore{% endif %}{% endif %}</td>
+        {% if rimborso %}<td>{% if t %}{% if t.own_car %}auto propria{% else %}auto del datore{% endif %}{% endif %}</td>{% endif %}
         <td class="num">{% if p.id in time_cost %}{{ time_cost[p.id] | eur }}{% endif %}</td>
-        <td class="num">{% if p.id in trip_cost %}{{ trip_cost[p.id] | eur }}{% endif %}</td>
+        {% if rimborso %}<td class="num">{% if p.id in trip_cost %}{{ trip_cost[p.id] | eur }}{% endif %}</td>{% endif %}
         {% if employer and not final %}
         <td class="actions">
           {% if p.end is not none %}<a class="icon" href="?modifica={{ p.id }}#registra" title="modifica" aria-label="modifica">✏️</a>{% endif %}

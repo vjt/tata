@@ -79,7 +79,9 @@ Nella pagina del mese:
   quella della lavoratrice. Il cartellino è una tabella: ore, giorno, orario, auto, costo del
   tempo (minuti × paga oraria, senza maggiorazioni: un colpo d'occhio, non il prospetto) e
   costo della trasferta (solo con l'auto propria, una per turno); ✏️ carica la riga nel form
-  *Registra* per correggerla, ❌ la cancella.
+  *Registra* per correggerla, ❌ la cancella. Il contratto dice se il rapporto ha il rimborso
+  trasferte (*rimborso trasferte*, sì di default): senza, nessun turno lo porta, qualunque sia
+  l'auto, e spariscono il selettore dell'auto e le colonne auto e trasferta.
 - **Spese e pagamenti**: dal form *Registra* il datore aggiunge una *spesa da rimborsare*
   (giorno, importo, cosa: la merenda al parco), che va nel *Da pagare* del suo mese fuori da
   lordo, contributi e TFR, e un *pagamento a lei* (giorno, importo, nota), non legato a un
