@@ -21,36 +21,7 @@
         {% endfor %}
         {% if d.anomalies %}<br><strong>da controllare:</strong> {{ d.anomalies | join(", ") }}{% endif %}
       </span>
-      <span class="actions">
-      {% if d.day in rejected %}
-        scartato
-        <form method="post" action="{{ base }}/presenza/scarta">
-          <input type="hidden" name="dal" value="{{ d.day.isoformat() }}">
-          <input type="hidden" name="ripristina" value="1">
-          <input type="hidden" name="torna" value="{{ here }}">
-          <button class="small">ripristina</button>
-        </form>
-      {% else %}
-      {% for p in d.proposals %}
-        {% if (d.day, p) in recorded %}
-          {{ p }} registrata
-        {% elif d.day == today and p.end > minute %}
-          {{ p }} (confermabile dalle {{ p.end | ore }})
-        {% else %}
-          <form method="post" action="{{ base }}/registra">
-            <input type="hidden" name="tipo" value="lavoro">
-            <input type="hidden" name="dal" value="{{ d.day.isoformat() }}">
-            <input type="hidden" name="inizio" value="{{ p.start | ore }}">
-            <input type="hidden" name="fine" value="{{ p.end | ore }}">
-            <input type="hidden" name="torna" value="{{ here }}">
-            <button class="small">registra {{ p }}</button>
-          </form>
-        {% endif %}
-      {% else %}
-        da registrare a mano
-      {% endfor %}
-      {% endif %}
-      </span>
+      {% include "_wifi_day.html" %}
     </li>
   {% endfor %}
   </ul>

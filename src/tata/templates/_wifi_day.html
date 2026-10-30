@@ -1,0 +1,39 @@
+<span class="actions">
+{% if d.day in rejected %}
+  scartato
+  <form method="post" action="{{ base }}/presenza/scarta">
+    <input type="hidden" name="dal" value="{{ d.day.isoformat() }}">
+    <input type="hidden" name="ripristina" value="1">
+    <input type="hidden" name="torna" value="{{ here }}">
+    <button class="small">ripristina</button>
+  </form>
+{% else %}
+{% for p in d.proposals %}
+  {% if (d.day, p) in recorded %}
+    {{ p }} registrata
+  {% elif d.day == today and p.end > minute %}
+    {{ p }} (confermabile dalle {{ p.end | ore }})
+  {% else %}
+    <form method="post" action="{{ base }}/registra">
+      <input type="hidden" name="tipo" value="lavoro">
+      <input type="hidden" name="dal" value="{{ d.day.isoformat() }}">
+      <input type="hidden" name="inizio" value="{{ p.start | ore }}">
+      <input type="hidden" name="fine" value="{{ p.end | ore }}">
+      <input type="hidden" name="torna" value="{{ here }}">
+      <button class="small">registra {{ p }}</button>
+    </form>
+  {% endif %}
+{% else %}
+  <a href="{{ base }}/mese/{{ d.day.year }}/{{ d.day.month }}?giorno={{ d.day.isoformat() }}#registra">da registrare a mano</a>
+{% endfor %}
+{% set ns = namespace(open=not d.proposals) %}
+{% for p in d.proposals if (d.day, p) not in recorded %}{% set ns.open = true %}{% endfor %}
+{% if ns.open %}
+  <form method="post" action="{{ base }}/presenza/scarta">
+    <input type="hidden" name="dal" value="{{ d.day.isoformat() }}">
+    <input type="hidden" name="torna" value="{{ here }}">
+    <button class="small">scarta</button>
+  </form>
+{% endif %}
+{% endif %}
+</span>

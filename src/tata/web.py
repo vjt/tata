@@ -619,6 +619,8 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             if modifica and not request.state.worker
             else None
         )
+        moment = now()
+        today = moment.date()
         rate = mileage(contract)
         km = rs.turno_km()
         month_turni = turni(rs.punches(), rs.employer_car(), km, year, month)
@@ -678,6 +680,8 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "next": f"/r/{cid}/mese/{next_y}/{next_m}",
                 "giorni": GIORNI,
                 "selected": request.query_params.get("giorno", date(year, month, 1).isoformat()),
+                "today": today,
+                "minute": minute_of(moment),
                 "editing": editing,
                 "own_car": editing is None
                 or (editing.day, editing.start < NOON) not in rs.employer_car(),

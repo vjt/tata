@@ -67,25 +67,7 @@
   {% for d in wifi.days %}
     <li>
       <span>{{ d.day | dmy }}{% if d.anomalies %} · <strong>da controllare:</strong> {{ d.anomalies | join(", ") }}{% endif %}</span>
-      <span class="actions">
-      {% for p in d.proposals %}
-        <form method="post" action="{{ base }}/registra">
-          <input type="hidden" name="tipo" value="lavoro">
-          <input type="hidden" name="dal" value="{{ d.day.isoformat() }}">
-          <input type="hidden" name="inizio" value="{{ p.start | ore }}">
-          <input type="hidden" name="fine" value="{{ p.end | ore }}">
-          <input type="hidden" name="torna" value="{{ base }}/mese/{{ year }}/{{ month }}">
-          <button class="small">registra {{ p }}</button>
-        </form>
-      {% else %}
-        <a href="{{ base }}/presenza/{{ year }}/{{ month }}">da registrare a mano</a>
-      {% endfor %}
-        <form method="post" action="{{ base }}/presenza/scarta">
-          <input type="hidden" name="dal" value="{{ d.day.isoformat() }}">
-          <input type="hidden" name="torna" value="{{ base }}/mese/{{ year }}/{{ month }}">
-          <button class="small">scarta</button>
-        </form>
-      </span>
+      {% with recorded=[], rejected=[], here=base ~ "/mese/" ~ year ~ "/" ~ month %}{% include "_wifi_day.html" %}{% endwith %}
     </li>
   {% endfor %}
   </ul>

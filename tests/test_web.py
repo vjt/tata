@@ -1078,6 +1078,10 @@ def test_a_wifi_day_can_be_rejected_and_restored(tmp_path: Path) -> None:
     c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), FakeHomeAssistant(A_DAY))
     box = c.get("/r/1/mese/2026/10").text.split('id="wifi"')[1].split("</section>")[0]
     assert 'action="/r/1/presenza/scarta"' in box and 'name="dal" value="2026-10-15"' in box
+    # One renderer for a wifi day: the presence page offers it too, back to itself.
+    presenza = c.get("/r/1/presenza/2026/10").text
+    assert ">scarta</button>" in presenza
+    assert 'name="torna" value="/r/1/presenza/2026/10"' in presenza.split("presenza/scarta")[1]
     form = {"dal": "2026-10-15", "torna": "/r/1/mese/2026/10"}
     w = with_worker(c, 1, WORKER)
     assert w.post("/r/1/presenza/scarta", data=form).status_code == 403  # the employer's
