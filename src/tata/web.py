@@ -621,6 +621,7 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         )
         moment = now()
         today = moment.date()
+        default_day = today if (today.year, today.month) == (year, month) else date(year, month, 1)
         rate = mileage(contract)
         km = rs.turno_km()
         month_turni = turni(rs.punches(), rs.employer_car(), km, year, month)
@@ -679,7 +680,7 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "prev": f"/r/{cid}/mese/{prev_y}/{prev_m}",
                 "next": f"/r/{cid}/mese/{next_y}/{next_m}",
                 "giorni": GIORNI,
-                "selected": request.query_params.get("giorno", date(year, month, 1).isoformat()),
+                "selected": request.query_params.get("giorno", default_day.isoformat()),
                 "today": today,
                 "minute": minute_of(moment),
                 "editing": editing,

@@ -1108,6 +1108,9 @@ def test_one_registra_form_for_work_and_events(tmp_path: Path) -> None:
     assert 'action="/r/1/timbrature"' not in page and 'action="/r/1/eventi"' not in page
     assert '<option value="lavoro">' in page and '<option value="ferie">' in page
     assert 'name="dal" required value="2026-10-13"' in page
+    # No day chosen (vjt 30/10): today in this month, the first of the month elsewhere.
+    assert 'name="dal" required value="2026-10-13"' in c.get("/r/1/mese/2026/10").text
+    assert 'name="dal" required value="2026-09-01"' in c.get("/r/1/mese/2026/9").text
     lavoro = {"tipo": "lavoro", "dal": "2026-10-13", "inizio": "15:45", "fine": "18:00"}
     assert c.post("/r/1/registra", data={**lavoro, "al": "2026-10-14"}).status_code == 400
     assert c.post("/r/1/registra", data={**lavoro, "al": ""}).status_code == 303
