@@ -91,6 +91,11 @@ CREATE TABLE IF NOT EXISTS employer_car (
     morning INTEGER NOT NULL,
     PRIMARY KEY (contract_id, day, morning)
 );
+CREATE TABLE IF NOT EXISTS wifi_rejected (
+    contract_id INTEGER NOT NULL REFERENCES contract (id),
+    day TEXT NOT NULL,
+    PRIMARY KEY (contract_id, day)
+);
 CREATE TABLE IF NOT EXISTS turno_km (
     contract_id INTEGER NOT NULL REFERENCES contract (id),
     day TEXT NOT NULL,
@@ -110,7 +115,8 @@ CREATE TABLE IF NOT EXISTS session (
 # 3: worker login names. 4: km per turno (a new table: the schema adds it).
 # 5: spese, wage payments (new tables) and the contract's `trattiene` (REWRITES).
 # 6: `trattiene` becomes `gestione` (REWRITES). 7: the contract's `rimborso_km` (REWRITES).
-VERSION = 7
+# 8: rejected wifi days (a new table: the schema adds it).
+VERSION = 8
 
 # Run on a database of version 1 or later, before the schema, to reach the given version.
 UPGRADES = {
@@ -434,6 +440,22 @@ class RapportoStore:
                     "DELETE FROM employer_car WHERE contract_id = ? AND day = ? AND morning = ?",
                     key,
                 )
+
+    # ---- days whose wifi presence the employer will not record
+
+    def wifi_rejected(self) -> set[date]:
+        rows = self._read("SELECT day FROM wifi_rejected WHERE contract_id = ?", (self.id,))
+        return {date.fromisoformat(str(day)) for (day,) in rows}
+
+    def set_wifi_rejected(self, day: date, rejected: bool) -> None:
+        key = (self.id, day.isoformat())
+        with closing(sqlite3.connect(self._path)) as db, db:
+            if rejected:
+                db.execute(
+                    "INSERT OR IGNORE INTO wifi_rejected (contract_id, day) VALUES (?, ?)", key
+                )
+            else:
+                db.execute("DELETE FROM wifi_rejected WHERE contract_id = ? AND day = ?", key)
 
     # ---- km of a turno other than the configured km per turno
 

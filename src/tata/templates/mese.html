@@ -80,6 +80,11 @@
       {% else %}
         <a href="{{ base }}/presenza/{{ year }}/{{ month }}">da registrare a mano</a>
       {% endfor %}
+        <form method="post" action="{{ base }}/presenza/scarta">
+          <input type="hidden" name="dal" value="{{ d.day.isoformat() }}">
+          <input type="hidden" name="torna" value="{{ base }}/mese/{{ year }}/{{ month }}">
+          <button class="small">scarta</button>
+        </form>
       </span>
     </li>
   {% endfor %}

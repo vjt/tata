@@ -377,6 +377,19 @@ def test_version_6_contracts_keep_the_rimborso_km(tmp_path: Path) -> None:
     assert final is not None and final.contract == worker
 
 
+def test_rejected_wifi_days(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    thu, fri = date(2026, 10, 15), date(2026, 10, 16)
+    s.set_wifi_rejected(thu, True)
+    s.set_wifi_rejected(thu, True)  # twice: still one
+    s.set_wifi_rejected(fri, True)
+    assert s.wifi_rejected() == {thu, fri}
+    s.set_wifi_rejected(fri, False)
+    assert s.wifi_rejected() == {thu}
+    other = Store(tmp_path / "tata.sqlite").add_rapporto(standard_contract(thu))
+    assert Store(tmp_path / "tata.sqlite").rapporto(other).wifi_rejected() == set()
+
+
 def test_spese_and_wage_payments(tmp_path: Path) -> None:
     s = store(tmp_path)
     tue = date(2026, 10, 13)

@@ -774,8 +774,8 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         if km is not None and rate is not None:
             same = km == rate.km_turno  # follows the configuration
             rs.set_turno_km(day, s.start < NOON, None if same else km)
-        back = form.get("torna")
-        if isinstance(back, str) and RETURN_TO.fullmatch(back) and back.startswith(f"/r/{cid}/"):
+        back = _back(form, cid)
+        if back is not None:
             return RedirectResponse(back, status_code=303)
         if day == now().date():
             return RedirectResponse(f"/r/{cid}/timbra", status_code=303)
@@ -823,8 +823,9 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         except (URLError, TimeoutError) as e:
             return WifiBox(days=[], error=f"Home Assistant non raggiungibile: {e}")
         punches = closed_punches(rs, year, month)
+        rejected = rs.wifi_rejected()
         todo: list[PresenceDay] = []
-        for d in days:
+        for d in (d for d in days if d.day not in rejected):
             ready = [
                 s
                 for s in d.proposals
@@ -860,12 +861,23 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "recorded": {
                     (d.day, s) for d in days for s in d.proposals if covered(d.day, s, punches)
                 },
+                "rejected": rs.wifi_rejected(),
                 "today": moment.date(),
                 "minute": minute_of(moment),
                 "weeks": sorted(weeks.items()),
                 "here": f"/r/{cid}/presenza/{year}/{month}",
             },
         )
+
+    @app.post("/r/{cid}/presenza/scarta")
+    async def reject_wifi_day(request: Request, cid: int) -> RedirectResponse:
+        """Reject a day's wifi presence (not work: nothing to record), or restore it."""
+        rs = store.rapporto(cid)
+        form = await request.form()
+        day = date.fromisoformat(_field(form, "dal"))
+        rs.set_wifi_rejected(day, not form.get("ripristina"))
+        back = _back(form, cid) or f"/r/{cid}/presenza/{day.year}/{day.month}"
+        return RedirectResponse(back, status_code=303)
 
     # ---- events
 
@@ -1021,6 +1033,14 @@ def _fmt_num(value: Decimal) -> str:
 
 def _fmt_dmy(value: date) -> str:
     return value.strftime("%d/%m/%Y")
+
+
+def _back(form: FormData, cid: int) -> str | None:
+    """The form's `torna`, if it is a page of the same rapporto; None otherwise."""
+    back = form.get("torna")
+    if isinstance(back, str) and RETURN_TO.fullmatch(back) and back.startswith(f"/r/{cid}/"):
+        return back
+    return None
 
 
 def _employer_car(form: FormData) -> bool | None:

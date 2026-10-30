@@ -89,7 +89,9 @@ Calc modules never touch the DB; the store never computes.
   between are ignored; exceptions are not rules: a day that doesn't fit is flagged anomalous.
   Each is confirmed through the ordinary punch path; the month page lists those no punch
   overlaps yet (and survives HA being down). Restart blips (`unavailable`) are not
-  departures; a stay with an unknown arrival or end is never proposed.
+  departures; a stay with an unknown arrival or end is never proposed. The employer can reject
+  a day (`wifi_rejected`, vjt 30/10: the phone was home, she was not working): it leaves the
+  month page, its spans are shortfalls again, the presence page can restore it.
 - **Validate on write.** Events and contract changes are checked against the calculators before
   they are stored; a stored inconsistency would brick every page that sums the year.
 - **Months close in order.** Finalizing requires the previous employed month finalized. The

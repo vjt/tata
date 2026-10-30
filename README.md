@@ -123,6 +123,9 @@ Niente viene registrato da solo: ogni proposta ha il suo pulsante *registra*, ch
 stessa strada della timbratura a mano (validazione, EXTRA, vuoti da confermare). I riavvii di
 Home Assistant (`unavailable`) non contano come uscite; una permanenza senza arrivo o uscita
 nota (telefono già «in casa» a mezzanotte, uscita durante un riavvio) va registrata a mano.
+Una giornata da non registrare (telefono in casa, lei non al lavoro) si toglie con *scarta*
+nella pagina del mese: i suoi orari tornano mancanze da confermare; la pagina *presenza* la
+mostra *scartata* e la *ripristina*.
 In fondo, le ore timbrate per settimana. Si attiva con `TATA_HA_URL` e `TATA_HA_TOKEN`
 (entrambe o nessuna) e, nel contratto di ogni rapporto, il tracker del telefono della
 lavoratrice (`device_tracker...`). Il tracciamento del telefono di una dipendente

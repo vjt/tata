@@ -1072,6 +1072,29 @@ def test_a_wifi_proposal_takes_the_place_of_the_scheduled_span(tmp_path: Path) -
     assert "15/10/2026 · 08:00-08:45" not in page and 'id="wifi"' not in page
 
 
+def test_a_wifi_day_can_be_rejected_and_restored(tmp_path: Path) -> None:
+    # Thu 15/10: the phone was home, she was not working. Rejected, the day leaves the box
+    # and its scheduled spans are shortfalls to confirm again.
+    c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), FakeHomeAssistant(A_DAY))
+    box = c.get("/r/1/mese/2026/10").text.split('id="wifi"')[1].split("</section>")[0]
+    assert 'action="/r/1/presenza/scarta"' in box and 'name="dal" value="2026-10-15"' in box
+    form = {"dal": "2026-10-15", "torna": "/r/1/mese/2026/10"}
+    w = with_worker(c, 1, WORKER)
+    assert w.post("/r/1/presenza/scarta", data=form).status_code == 403  # the employer's
+    r = c.post("/r/1/presenza/scarta", data=form)
+    assert r.headers["location"] == "/r/1/mese/2026/10"
+    page = c.get("/r/1/mese/2026/10").text
+    assert 'id="wifi"' not in page
+    assert "15/10/2026 · 08:00-08:45 non timbrato" in page
+    assert "15/10/2026 · 15:45-18:00 non timbrato" in page
+    presenza = c.get("/r/1/presenza/2026/10").text
+    assert "scartato" in presenza and "registra 07:55-08:42" not in presenza
+    assert Store(tmp_path / "tata.sqlite").rapporto(1).punches() == []  # nothing recorded
+    # Restored: proposed again.
+    c.post("/r/1/presenza/scarta", data={**form, "ripristina": "1"})
+    assert "registra 07:55-08:42" in c.get("/r/1/mese/2026/10").text
+
+
 def test_one_registra_form_for_work_and_events(tmp_path: Path) -> None:
     # Order (vjt 16/10): calendario, cartellino, registra, prospetto; one form for both.
     c, _ = punching(tmp_path, rome(2026, 10, 13, 19, 0))
