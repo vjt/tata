@@ -89,7 +89,9 @@ Calc modules never touch the DB; the store never computes.
   between are ignored; exceptions are not rules: a day that doesn't fit is flagged anomalous.
   Each is confirmed through the ordinary punch path; the month page lists those no punch
   overlaps yet (and survives HA being down). Restart blips (`unavailable`) are not
-  departures; a stay with an unknown arrival or end is never proposed. The employer can reject
+  departures, nor is a null state (the entity renamed or removed); a tracker HA no longer
+  knows (`/api/states` 404) is said plainly, never a crash. A stay with an unknown arrival or
+  end is never proposed. The employer can reject
   a day (`wifi_rejected`, vjt 30/10: the phone was home, she was not working): it leaves the
   month page, its spans are shortfalls again, the presence page can restore it.
 - **Validate on write.** Events and contract changes are checked against the calculators before

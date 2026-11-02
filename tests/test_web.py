@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tata.festivita import festivita
+from tata.homeassistant import EntityGone
 from tata.models import EventKind, Mileage
 from tata.presenza import Change, History, Seen
 from tata.store import Store
@@ -686,6 +687,24 @@ def test_presence_page_without_home_assistant(tmp_path: Path) -> None:
     r = c.get("/r/1/presenza/2026/10")
     assert r.status_code == 502
     assert "Home Assistant" in r.text
+
+
+class GoneHomeAssistant(FakeHomeAssistant):
+    """Home Assistant up, the rapporto's tracker gone (renamed or removed)."""
+
+    def __call__(self, entity: str, start: datetime, end: datetime) -> History:
+        raise EntityGone(entity)
+
+
+def test_a_vanished_tracker_is_said_plainly(tmp_path: Path) -> None:
+    c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), GoneHomeAssistant(None))
+    r = c.get("/r/1/presenza/2026/10")
+    assert r.status_code == 404
+    assert f"{TRACKER} non esiste più in Home Assistant" in r.text
+    r = c.get("/r/1/mese/2026/10")  # the month page still works, and says it in the box
+    assert r.status_code == 200
+    box = r.text.split('id="wifi"')[1].split("</section>")[0]
+    assert f"{TRACKER} non esiste più in Home Assistant" in box
 
 
 def test_presence_not_configured(tmp_path: Path) -> None:

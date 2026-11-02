@@ -33,7 +33,7 @@ from tata.annual import (
     year_payslips,
 )
 from tata.festivita import festivita
-from tata.homeassistant import fetch_history
+from tata.homeassistant import EntityGone, fetch_history
 from tata.hours import month_work, range_days
 from tata.inps import quarter_contributions, quarter_months
 from tata.models import (
@@ -249,6 +249,12 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             "errore.html",
             {"message": f"Home Assistant non raggiungibile: {exc}"},
             status_code=502,
+        )
+
+    @app.exception_handler(EntityGone)
+    async def tracker_gone(request: Request, exc: EntityGone) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request, "errore.html", {"message": str(exc)}, status_code=404
         )
 
     @app.exception_handler(KeyError)
@@ -801,7 +807,8 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
 
     def wifi_days(cid: int, year: int, month: int, moment: datetime) -> list[PresenceDay]:
         """The days of the month, up to now, the worker's phone was seen on the wifi.
-        ValueError if wifi presence is not set up; URLError/TimeoutError if HA is down."""
+        ValueError if wifi presence is not set up; EntityGone if HA does not know the tracker;
+        URLError/TimeoutError if HA is down."""
         entity = next(r.ha_entity for r in store.rapporti() if r.id == cid)
         if presence is None:
             raise ValueError(f"presenza wifi non configurata: imposta {', '.join(HA_VARS)}")
@@ -827,6 +834,8 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             days = wifi_days(cid, year, month, moment)
         except (URLError, TimeoutError) as e:
             return WifiBox(days=[], error=f"Home Assistant non raggiungibile: {e}")
+        except EntityGone as e:
+            return WifiBox(days=[], error=str(e))
         punches = closed_punches(rs, year, month)
         rejected = rs.wifi_rejected()
         todo: list[PresenceDay] = []

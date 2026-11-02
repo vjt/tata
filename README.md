@@ -121,7 +121,8 @@ mano.
 
 Niente viene registrato da solo: ogni proposta ha il suo pulsante *registra*, che passa dalla
 stessa strada della timbratura a mano (validazione, EXTRA, vuoti da confermare). I riavvii di
-Home Assistant (`unavailable`) non contano come uscite; una permanenza senza arrivo o uscita
+Home Assistant (`unavailable`) e lo stato nullo di un tracker rinominato non contano come
+uscite; se il tracker del contratto non esiste più in Home Assistant le pagine lo dicono; una permanenza senza arrivo o uscita
 nota (telefono già «in casa» a mezzanotte, uscita durante un riavvio) va registrata a mano.
 Una giornata da non registrare (telefono in casa, lei non al lavoro) si toglie con *scarta*
 nella pagina del mese: i suoi orari tornano mancanze da confermare; la pagina *presenza* la
