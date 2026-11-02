@@ -1,0 +1,16 @@
+<li>
+  <span>{{ s.day | dmy }} · {{ s.span }} {{ "assente (wifi)" if s.away else "non timbrato" }}</span>
+  <span class="actions">
+  {% if employer %}{% for kind, label in buttons %}
+    <form method="post" action="{{ base }}/registra">
+      <input type="hidden" name="tipo" value="{{ kind }}">
+      <input type="hidden" name="dal" value="{{ s.day.isoformat() }}">
+      <input type="hidden" name="al" value="">
+      <input type="hidden" name="inizio" value="{{ s.span.start | ore }}">
+      <input type="hidden" name="fine" value="{{ s.span.end | ore }}">
+      <input type="hidden" name="note" value="">
+      <button class="small">{{ label }}</button>
+    </form>
+  {% endfor %}{% endif %}
+  </span>
+</li>

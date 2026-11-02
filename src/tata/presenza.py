@@ -61,6 +61,7 @@ class PresenceDay(Frozen):
     sessions: list[Session]
     proposals: list[Span]
     anomalies: list[Anomaly]
+    unknown: list[Span]  # when the tracker said nothing: restarts, before its history
 
 
 class _Stay(Frozen):
@@ -78,16 +79,64 @@ def presence_days(history: History, first: date, last: date) -> list[PresenceDay
     past noon proposes nothing, and the day lists its anomalies.
     """
     stays = _stays(history)
+    blind = _blind(history, datetime.combine(first, time(0), ROME))
     result: list[PresenceDay] = []
     day = first
     while day <= last:
         sessions = _sessions(stays, day)
         proposals, anomalies = _shifts(sessions)
         result.append(
-            PresenceDay(day=day, sessions=sessions, proposals=proposals, anomalies=anomalies)
+            PresenceDay(
+                day=day,
+                sessions=sessions,
+                proposals=proposals,
+                anomalies=anomalies,
+                unknown=_clip(blind, day),
+            )
         )
         day += timedelta(days=1)
     return result
+
+
+def away(day: PresenceDay, spans: tuple[Span, ...]) -> list[Span]:
+    """The scheduled `spans` the tracker certainly saw her out for: no stay at home and no
+    moment it said nothing touches them. Absent by itself (vjt 2/11), nothing to confirm."""
+    home = [
+        (s.arrival or 0, MINUTES_PER_DAY if s.departure is None else s.departure)
+        for s in day.sessions
+    ]
+    seen = home + [(u.start, u.end) for u in day.unknown]
+    return [s for s in spans if not any(s.start < end and start < s.end for start, end in seen)]
+
+
+def _blind(history: History, start: datetime) -> list[tuple[datetime, datetime | None]]:
+    """The stretches the tracker was unknown from `start` on (None: still unknown)."""
+    stretches: list[tuple[datetime, datetime | None]] = []
+    since = start if history.initial is Seen.UNKNOWN else None
+    for c in sorted(history.changes, key=lambda c: c.at):
+        if c.seen is Seen.UNKNOWN and since is None:
+            since = c.at
+        elif c.seen is not Seen.UNKNOWN and since is not None:
+            stretches.append((since, c.at))
+            since = None
+    if since is not None:
+        stretches.append((since, None))
+    return stretches
+
+
+def _clip(stretches: list[tuple[datetime, datetime | None]], day: date) -> list[Span]:
+    """The stretches within `day`, in minutes; those under a minute are nothing."""
+    start = datetime.combine(day, time(0), ROME)
+    end = datetime.combine(day + timedelta(days=1), time(0), ROME)
+    spans: list[Span] = []
+    for since, until in stretches:
+        if since >= end or (until is not None and until <= start):
+            continue
+        a = _minute(since) if since > start else 0
+        b = _minute(until) if until is not None and until < end else MINUTES_PER_DAY
+        if a < b:
+            spans.append(Span(start=a, end=b))
+    return spans
 
 
 def _stays(history: History) -> list[_Stay]:

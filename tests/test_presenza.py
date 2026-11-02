@@ -1,7 +1,16 @@
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from tata.presenza import Anomaly, Change, History, PresenceDay, Seen, Session, presence_days
+from tata.presenza import (
+    Anomaly,
+    Change,
+    History,
+    PresenceDay,
+    Seen,
+    Session,
+    away,
+    presence_days,
+)
 from tests.helpers import span
 
 ROME = ZoneInfo("Europe/Rome")
@@ -233,3 +242,38 @@ def test_quiet_days_are_listed_empty() -> None:
     days = presence_days(History(initial=AWAY, changes=[]), DAY, DAY + timedelta(days=2))
     assert [d.day for d in days] == [DAY, DAY + timedelta(days=1), DAY + timedelta(days=2)]
     assert all(d.sessions == [] and d.anomalies == [] for d in days)
+
+
+SCHOOL = (span("08:00-08:45"), span("15:45-18:00"))
+
+
+def test_a_day_out_is_away_for_every_scheduled_span() -> None:
+    d = one_day(history(AWAY))
+    assert d.unknown == []
+    assert away(d, SCHOOL) == list(SCHOOL)
+
+
+def test_a_span_she_was_home_in_is_not_away() -> None:
+    # Home 15:50, not_home 18:04 (left 18:02): the afternoon is seen, the morning is not.
+    d = one_day(history(AWAY, ("15:50:00", HOME), ("18:04:00", AWAY)))
+    assert away(d, SCHOOL) == [span("08:00-08:45")]
+
+
+def test_an_unknown_state_is_never_away() -> None:
+    # Home Assistant restarting 08:10-08:20 while she is out: the morning is not certain.
+    d = one_day(history(AWAY, ("08:10:00", UNKNOWN), ("08:20:00", AWAY)))
+    assert d.unknown == [span("08:10-08:20")]
+    assert away(d, SCHOOL) == [span("15:45-18:00")]
+
+
+def test_no_history_is_unknown_all_day() -> None:
+    d = one_day(History(initial=UNKNOWN, changes=[]))
+    assert d.unknown == [span("00:00-24:00")]
+    assert away(d, SCHOOL) == []
+
+
+def test_a_history_starting_mid_day_is_unknown_before() -> None:
+    # A tracker renamed at noon: its history starts there, the morning is not known.
+    d = one_day(history(UNKNOWN, ("12:00:00", AWAY)))
+    assert d.unknown == [span("00:00-12:00")]
+    assert away(d, SCHOOL) == [span("15:45-18:00")]

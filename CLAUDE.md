@@ -60,10 +60,14 @@ Calc modules never touch the DB; the store never computes.
   still to come) counts as unstored ASSENZA (`unpunched`). The month page also shows the
   planned payslip (schedule as if worked), for comparison only. A punch, or an unrecorded wifi
   proposal, overlapping a scheduled span takes its place: no shortfall there (the rest of the
-  span stays unpaid). Other shortfalls are still confirmed one by one as
+  span stays unpaid). **Absences are automatic** (vjt 2/11) for a rapporto with a tracker: a
+  span the wifi certainly saw her out for (no stay, nothing unknown: `presenza.away`) is a
+  shortfall flagged `away`, listed as a note with permesso/mora to correct it, never a prompt.
+  Never in silence: HA down, the tracker gone or an unknown stretch leave the shortfall to
+  confirm, with the reason. Other shortfalls are confirmed one by one as
   ASSENZA / PERMESSO / MORA (sent home, paid as scheduled, art. 1206 c.c.): confirming is what
-  pays PERMESSO and MORA. A month that hasn't ended, or has shortfalls or an open punch, cannot
-  be finalized.
+  pays PERMESSO and MORA. A month that hasn't ended, or has unflagged shortfalls or an open
+  punch, cannot be finalized. Pay never reads HA: away or not, the span is unpaid ASSENZA.
 - **Rimborso trasferte per turno** (half-day with a closed punch, at most two a day): km per
   turno × ACI €/km, both from the env (`TATA_RIMBORSO_*`, runtime data). Trasferta fuori comune,
   not income (art. 51 c.5 TUIR): outside lordo, INPS, TFR, attestazione; netto stays lordo −
@@ -93,7 +97,7 @@ Calc modules never touch the DB; the store never computes.
   knows (`/api/states` 404) is said plainly, never a crash. A stay with an unknown arrival or
   end is never proposed. The employer can reject
   a day (`wifi_rejected`, vjt 30/10: the phone was home, she was not working): it leaves the
-  month page, its spans are shortfalls again, the presence page can restore it.
+  month page and its spans are away (absent), the presence page can restore it.
 - **Validate on write.** Events and contract changes are checked against the calculators before
   they are stored; a stored inconsistency would brick every page that sums the year.
 - **Months close in order.** Finalizing requires the previous employed month finalized. The

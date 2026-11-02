@@ -51,28 +51,42 @@ def test_a_punch_over_a_scheduled_span_replaces_it() -> None:
     # Morning 08:00-08:45 punched 08:10-08:45 (vjt 16/10: the punch, often a confirmed wifi
     # proposal, is that turno): the 10 min before it are not worked, unpaid, not to confirm.
     punches = [punch(TUE, "08:10-08:45"), punch(TUE, "15:45-17:30")]
-    assert shortfalls(WORKER, [], punches, at(2026, 10, 13, 20, 0)) == []
+    assert shortfalls(WORKER, [], punches, at(2026, 10, 13, 20, 0), {}) == []
     # A span no punch touches still is one.
     later = at(2026, 10, 14, 20, 0)
     wed = date(2026, 10, 14)
-    assert shortfalls(WORKER, [], [*punches, punch(wed, "15:45-18:00")], later) == [
-        Shortfall(day=wed, span=span("08:00-08:45"))
+    assert shortfalls(WORKER, [], [*punches, punch(wed, "15:45-18:00")], later, {}) == [
+        Shortfall(day=wed, span=span("08:00-08:45"), away=False)
     ]
 
 
 def test_late_arrival_within_tolerance_is_nothing() -> None:
     punches = [punch(TUE, "08:05-08:45"), punch(TUE, "15:45-17:56")]
-    assert shortfalls(WORKER, [], punches, at(2026, 10, 13, 20, 0)) == []
+    assert shortfalls(WORKER, [], punches, at(2026, 10, 13, 20, 0), {}) == []
     assert overruns(WORKER, punches[0]) == []
 
 
 def test_unpunched_span_counts_only_once_ended() -> None:
     morning = [punch(TUE, "08:00-08:45")]
     # 17:00: the afternoon span is still running, nothing pending yet.
-    assert shortfalls(WORKER, [], morning, at(2026, 10, 13, 17, 0)) == []
+    assert shortfalls(WORKER, [], morning, at(2026, 10, 13, 17, 0), {}) == []
     # 18:00: it has ended unpunched.
-    assert shortfalls(WORKER, [], morning, at(2026, 10, 13, 18, 0)) == [
-        Shortfall(day=TUE, span=span("15:45-18:00"))
+    assert shortfalls(WORKER, [], morning, at(2026, 10, 13, 18, 0), {}) == [
+        Shortfall(day=TUE, span=span("15:45-18:00"), away=False)
+    ]
+
+
+def test_spans_the_wifi_saw_her_away_for_are_flagged() -> None:
+    # Tue 13/10, nothing punched; the wifi is certain she was out in the afternoon only.
+    now = at(2026, 10, 13, 20, 0)
+    assert shortfalls(WORKER, [], [], now, {TUE: [AFTERNOON]}) == [
+        Shortfall(day=TUE, span=span("08:00-08:45"), away=False),
+        Shortfall(day=TUE, span=AFTERNOON, away=True),
+    ]
+    # Still unpaid either way: away decides only that nobody has to confirm it.
+    assert [e.span for e in unpunched(WORKER, [], [], 2026, 10) if e.day == TUE] == [
+        span("08:00-08:45"),
+        AFTERNOON,
     ]
 
 
@@ -80,12 +94,12 @@ def test_events_clear_shortfalls() -> None:
     morning = [punch(TUE, "08:00-08:45")]
     now = at(2026, 10, 13, 20, 0)
     for kind in (EventKind.MORA, EventKind.ASSENZA, EventKind.PERMESSO):
-        assert shortfalls(WORKER, [event(TUE, kind, "15:45-18:00")], morning, now) == []
+        assert shortfalls(WORKER, [event(TUE, kind, "15:45-18:00")], morning, now, {}) == []
     # Wednesday on ferie, nothing punched that day: no shortfall.
     wed = date(2026, 10, 14)
     later = at(2026, 10, 14, 20, 0)
-    assert shortfalls(WORKER, [event(wed, EventKind.FERIE, None)], morning, later) == [
-        Shortfall(day=TUE, span=span("15:45-18:00"))  # Tuesday afternoon still pending
+    assert shortfalls(WORKER, [event(wed, EventKind.FERIE, None)], morning, later, {}) == [
+        Shortfall(day=TUE, span=span("15:45-18:00"), away=False)  # Tuesday afternoon still pending
     ]
 
 
@@ -93,18 +107,18 @@ def test_every_unpunched_day_since_hire_is_pending() -> None:
     # Nothing punched at all: Tue 13 and Wed 14/10, both spans, are pending; Mon 12, before
     # the hire, is not.
     wed = date(2026, 10, 14)
-    assert shortfalls(WORKER, [], [], at(2026, 10, 14, 20, 0)) == [
-        Shortfall(day=TUE, span=span("08:00-08:45")),
-        Shortfall(day=TUE, span=AFTERNOON),
-        Shortfall(day=wed, span=span("08:00-08:45")),
-        Shortfall(day=wed, span=AFTERNOON),
+    assert shortfalls(WORKER, [], [], at(2026, 10, 14, 20, 0), {}) == [
+        Shortfall(day=TUE, span=span("08:00-08:45"), away=False),
+        Shortfall(day=TUE, span=AFTERNOON, away=False),
+        Shortfall(day=wed, span=span("08:00-08:45"), away=False),
+        Shortfall(day=wed, span=AFTERNOON, away=False),
     ]
 
 
 def test_open_punch_covers_the_rest_of_the_day() -> None:
     p = Punch(id=0, day=TUE, start=span("15:45-18:00").start, end=None)
     morning = punch(TUE, "08:00-08:45")
-    assert shortfalls(WORKER, [], [morning, p], at(2026, 10, 13, 18, 30)) == []
+    assert shortfalls(WORKER, [], [morning, p], at(2026, 10, 13, 18, 30), {}) == []
 
 
 def test_check_punches_refuses_overlaps_and_two_open() -> None:
@@ -159,7 +173,7 @@ def test_festivita_is_never_a_shortfall() -> None:
     mon = date(2026, 12, 7)
     punches = [punch(mon, "08:00-08:45"), punch(mon, "15:45-18:00")]
     hired_monday = standard_contract(mon)
-    assert shortfalls(hired_monday, [], punches, at(2026, 12, 8, 20, 0)) == []
+    assert shortfalls(hired_monday, [], punches, at(2026, 12, 8, 20, 0), {}) == []
 
 
 def test_unpunched_time_of_the_month_is_unpaid_assenza() -> None:

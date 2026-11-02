@@ -36,25 +36,22 @@
 {% if pending %}
 <section class="card error">
   <h2>Da confermare</h2>
+  {% if wifi.error %}<p>Assenze dal wifi non calcolate: {{ wifi.error }}</p>{% endif %}
   <ul class="events">
-  {% for s in pending %}
-    <li>
-      <span>{{ s.day | dmy }} · {{ s.span }} non timbrato</span>
-      <span class="actions">
-      {% if employer %}{% for kind, label in [("assenza", "assente"), ("permesso", "permesso"), ("mora", "mandata a casa")] %}
-        <form method="post" action="{{ base }}/registra">
-          <input type="hidden" name="tipo" value="{{ kind }}">
-          <input type="hidden" name="dal" value="{{ s.day.isoformat() }}">
-          <input type="hidden" name="al" value="">
-          <input type="hidden" name="inizio" value="{{ s.span.start | ore }}">
-          <input type="hidden" name="fine" value="{{ s.span.end | ore }}">
-          <input type="hidden" name="note" value="">
-          <button class="small">{{ label }}</button>
-        </form>
-      {% endfor %}{% endif %}
-      </span>
-    </li>
-  {% endfor %}
+  {% set buttons = [("assenza", "assente"), ("permesso", "permesso"), ("mora", "mandata a casa")] %}
+  {% for s in pending %}{% include "_shortfall.html" %}{% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if absent and employer %}
+<section class="card" id="assenze">
+  <h2>Assenze dal wifi</h2>
+  <p class="hint">Mai vista dal wifi in queste fasce: assente, non pagata. Se era un permesso o
+    l'hai mandata a casa, correggi qui.</p>
+  <ul class="events">
+  {% set buttons = [("permesso", "permesso"), ("mora", "mandata a casa")] %}
+  {% for s in absent %}{% include "_shortfall.html" %}{% endfor %}
   </ul>
 </section>
 {% endif %}

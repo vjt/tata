@@ -636,6 +636,7 @@ A_DAY = History(
 
 
 TRACKER = "device_tracker.necchi"
+QUIET = History(initial=Seen.AWAY, changes=[])  # never home
 
 
 def presence_client(tmp_path: Path, clock: datetime, ha: FakeHomeAssistant) -> TestClient:
@@ -1064,7 +1065,10 @@ def test_month_page_offers_the_unrecorded_wifi_proposals(tmp_path: Path) -> None
     assert 'id="wifi"' not in c.get("/r/1/mese/2026/10").text
     # The worker sees no box, and her page never asks Home Assistant.
     asked = len(ha.asked)
-    assert 'id="wifi"' not in with_worker(c, 1, WORKER).get("/r/1/mese/2026/10").text
+    worker_page = with_worker(c, 1, WORKER).get("/r/1/mese/2026/10").text
+    assert 'id="wifi"' not in worker_page
+    # Her rapporto has a tracker: nothing for her to confirm, no absences listed (vjt 2/11).
+    assert "Da confermare" not in worker_page and 'id="assenze"' not in worker_page
     assert len(ha.asked) == asked
 
 
@@ -1082,7 +1086,9 @@ def test_a_wifi_proposal_takes_the_place_of_the_scheduled_span(tmp_path: Path) -
     assert "registra 07:55-08:42" in page
     assert "15/10/2026 · 08:00-08:45 non timbrato" not in page
     assert "15/10/2026 · 15:45-18:00 non timbrato" not in page
-    assert "14/10/2026 · 08:00-08:45 non timbrato" in page  # no wifi that day
+    # No wifi at all on 14/10 (vjt 2/11): absent by itself, listed, nothing to confirm.
+    assert "14/10/2026 · 08:00-08:45 non timbrato" not in page
+    assert "14/10/2026 · 08:00-08:45 assente (wifi)" in page
     # Recorded: no shortfall either, the punch replaced the span.
     for inizio, fine in (("7:55", "8:42"), ("15:45", "18:03")):
         form = {"tipo": "lavoro", "dal": "2026-10-15", "inizio": inizio, "fine": fine}
@@ -1093,7 +1099,7 @@ def test_a_wifi_proposal_takes_the_place_of_the_scheduled_span(tmp_path: Path) -
 
 def test_a_wifi_day_can_be_rejected_and_restored(tmp_path: Path) -> None:
     # Thu 15/10: the phone was home, she was not working. Rejected, the day leaves the box
-    # and its scheduled spans are shortfalls to confirm again.
+    # and its scheduled spans are absences like a day without wifi: nothing to confirm.
     c = presence_client(tmp_path, rome(2026, 10, 15, 19, 0), FakeHomeAssistant(A_DAY))
     box = c.get("/r/1/mese/2026/10").text.split('id="wifi"')[1].split("</section>")[0]
     assert 'action="/r/1/presenza/scarta"' in box and 'name="dal" value="2026-10-15"' in box
@@ -1108,14 +1114,47 @@ def test_a_wifi_day_can_be_rejected_and_restored(tmp_path: Path) -> None:
     assert r.headers["location"] == "/r/1/mese/2026/10"
     page = c.get("/r/1/mese/2026/10").text
     assert 'id="wifi"' not in page
-    assert "15/10/2026 · 08:00-08:45 non timbrato" in page
-    assert "15/10/2026 · 15:45-18:00 non timbrato" in page
+    assert "15/10/2026 · 08:00-08:45 assente (wifi)" in page
+    assert "15/10/2026 · 15:45-18:00 assente (wifi)" in page
+    assert "non timbrato" not in page
     presenza = c.get("/r/1/presenza/2026/10").text
     assert "scartato" in presenza and "registra 07:55-08:42" not in presenza
     assert Store(tmp_path / "tata.sqlite").rapporto(1).punches() == []  # nothing recorded
     # Restored: proposed again.
     c.post("/r/1/presenza/scarta", data={**form, "ripristina": "1"})
     assert "registra 07:55-08:42" in c.get("/r/1/mese/2026/10").text
+
+
+def test_absences_follow_the_wifi(tmp_path: Path) -> None:
+    # Hired Mon 12/10, never seen on the wifi, nothing punched. On 2/11 October is over:
+    # every span is certainly away, so absent by itself (vjt 2/11) and unpaid as before.
+    c = presence_client(tmp_path, rome(2026, 11, 2, 9, 0), FakeHomeAssistant(QUIET))
+    page = c.get("/r/1/mese/2026/10").text
+    assert "Da confermare" not in page and "non timbrato" not in page
+    absent = page.split('id="assenze"')[1].split("</section>")[0]
+    assert "12/10/2026 · 08:00-08:45 assente (wifi)" in absent
+    # A note, not a prompt: permesso or mora still pay it, there is no "assente" to press.
+    assert ">permesso</button>" in absent and ">mandata a casa</button>" in absent
+    assert ">assente</button>" not in absent
+    assert c.post("/r/1/mese/2026/10/finalizza").status_code == 303
+
+
+def test_without_the_wifi_absences_are_confirmed_by_hand(tmp_path: Path) -> None:
+    # Home Assistant down, or the tracker gone: never absent in silence. Prompts as before,
+    # with the reason, and October cannot be finalized.
+    for ha, reason in (
+        (FakeHomeAssistant(None), "Home Assistant non raggiungibile"),
+        (GoneHomeAssistant(None), f"{TRACKER} non esiste più in Home Assistant"),
+    ):
+        (tmp_path / reason[:4]).mkdir()
+        c = presence_client(tmp_path / reason[:4], rome(2026, 11, 2, 9, 0), ha)
+        page = c.get("/r/1/mese/2026/10").text
+        pending = page.split("Da confermare")[1].split("</section>")[0]
+        assert "12/10/2026 · 08:00-08:45 non timbrato" in pending
+        assert "Assenze dal wifi non calcolate: " in pending and reason in pending
+        assert 'id="assenze"' not in page
+        r = c.post("/r/1/mese/2026/10/finalizza")
+        assert r.status_code == 400 and reason in r.text
 
 
 def test_one_registra_form_for_work_and_events(tmp_path: Path) -> None:

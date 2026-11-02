@@ -101,6 +101,12 @@ Nella pagina del mese:
   tre pulsanti: *assente* (ASSENZA), *permesso* (PERMESSO, pagato), *mandata a casa* (MORA:
   pagata come da orario, art. 1206 c.c., solo dentro l'orario). Un mese non ancora finito, con
   vuoti da confermare o con una timbratura aperta non si può finalizzare.
+- **Assenze automatiche** (rapporti con tracker wifi): una fascia prevista in cui il wifi è
+  certo che lei non c'era è un'assenza da sola, senza niente da confermare: compare nel
+  riquadro *Assenze dal wifi*, con *permesso* e *mandata a casa* per correggerla, e non blocca
+  la finalizzazione. Se Home Assistant è giù, il tracker non esiste più o lo stato è ignoto
+  (riavvii, storia che manca), la fascia resta *da confermare*, con il motivo scritto. La
+  lavoratrice, nei rapporti con tracker, non ha niente da confermare.
 
 **Presenza dal wifi** (facoltativa): la pagina *presenza* del rapporto legge da Home Assistant la storia del
 `device_tracker` del telefono della lavoratrice (ad esempio quello di
@@ -125,7 +131,7 @@ Home Assistant (`unavailable`) e lo stato nullo di un tracker rinominato non con
 uscite; se il tracker del contratto non esiste più in Home Assistant le pagine lo dicono; una permanenza senza arrivo o uscita
 nota (telefono già «in casa» a mezzanotte, uscita durante un riavvio) va registrata a mano.
 Una giornata da non registrare (telefono in casa, lei non al lavoro) si toglie con *scarta*
-nella pagina del mese: i suoi orari tornano mancanze da confermare; la pagina *presenza* la
+nella pagina del mese: i suoi orari diventano assenze; la pagina *presenza* la
 mostra *scartata* e la *ripristina*.
 In fondo, le ore timbrate per settimana. Si attiva con `TATA_HA_URL` e `TATA_HA_TOKEN`
 (entrambe o nessuna) e, nel contratto di ogni rapporto, il tracker del telefono della

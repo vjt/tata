@@ -61,7 +61,7 @@ from tata.payslip import (
     trip_km,
 )
 from tata.pdf import render_pdf
-from tata.presenza import History, PresenceDay, presence_days
+from tata.presenza import History, PresenceDay, away, presence_days
 from tata.rates import RatesBook
 from tata.store import RapportoStore, Store
 from tata.timbratura import (
@@ -124,7 +124,9 @@ class WifiBox(Frozen):
     """The month page's wifi proposals still to record, or why there are none to show."""
 
     days: list[PresenceDay]
+    away: dict[date, list[Span]]  # the scheduled spans the wifi saw her out for: absent
     error: str
+    tracked: bool  # the rapporto has a tracker: absences come from the wifi, not by hand
 
 
 def closed_punches(rs: RapportoStore, year: int, month: int) -> list[Punch]:
@@ -351,13 +353,16 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
     def minute_of(moment: datetime) -> int:
         return moment.hour * 60 + moment.minute
 
-    def pending(rs: RapportoStore, contract: Contract, year: int, month: int) -> list[Shortfall]:
-        """Shortfalls of an open month; a finalized month has nothing left to confirm."""
+    def pending(
+        rs: RapportoStore, contract: Contract, year: int, month: int, wifi: WifiBox
+    ) -> list[Shortfall]:
+        """Shortfalls of an open month, those the wifi saw her away for flagged; a finalized
+        month has nothing left to confirm."""
         if rs.final_payslip(year, month) is not None:
             return []
         return [
             s
-            for s in shortfalls(contract, rs.events(), rs.punches(), now())
+            for s in shortfalls(contract, rs.events(), rs.punches(), now(), wifi.away)
             if (s.day.year, s.day.month) == (year, month)
         ]
 
@@ -632,9 +637,15 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
         km = rs.turno_km()
         month_turni = turni(rs.punches(), rs.employer_car(), km, year, month)
         wifi = (
-            WifiBox(days=[], error="")
-            if request.state.worker
-            else wifi_unrecorded(cid, rs, year, month)
+            WifiBox(days=[], away={}, error="", tracked=tracked(cid))
+            if request.state.worker  # her page never asks Home Assistant
+            else wifi_unrecorded(cid, rs, contract, year, month)
+        )
+        # With a tracker she has nothing to confirm: the employer does, from the wifi.
+        gaps = (
+            []
+            if request.state.worker and wifi.tracked
+            else pending(rs, contract, year, month, wifi)
         )
         return templates.TemplateResponse(
             request,
@@ -673,13 +684,15 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "punches": [p for p in rs.punches() if (p.day.year, p.day.month) == (year, month)],
                 "pending": [
                     s
-                    for s in pending(rs, contract, year, month)
-                    if not any(
+                    for s in gaps
+                    if not s.away
+                    and not any(
                         d.day == s.day and p.start < s.span.end and s.span.start < p.end
                         for d in wifi.days
                         for p in d.proposals
                     )
                 ],  # a wifi proposal over a scheduled span takes its place (vjt 16/10)
+                "absent": [s for s in gaps if s.away],
                 "wifi": wifi,
                 "final": final,
                 "tfr": tfr(contract, rs.advances(), year, month, source(rs, contract), book),
@@ -718,10 +731,12 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             raise ValueError(f"finalizza prima {MESI[pm]} {py}: i mesi si chiudono in ordine")
         if any(p.end is None for p in rs.punches() if (p.day.year, p.day.month) == (year, month)):
             raise ValueError(f"c'è una timbratura aperta in {MESI[month]} {year}: chiudila prima")
-        if pending(rs, contract, year, month):
+        wifi = wifi_unrecorded(cid, rs, contract, year, month)
+        if any(not s.away for s in pending(rs, contract, year, month, wifi)):
             raise ValueError(
                 f"ci sono mancanze da confermare o turni dal wifi da registrare in "
                 f"{MESI[month]} {year}"
+                + (f" (assenze dal wifi non calcolate: {wifi.error})" if wifi.error else "")
             )
         if now().date() < date(year + month // 12, month % 12 + 1, 1):
             raise ValueError(f"{MESI[month]} {year} non è ancora finito")
@@ -820,26 +835,39 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             return []
         start = datetime.combine(first, time(0), ROME)
         end = min(moment, datetime.combine(last + timedelta(days=1), time(0), ROME))
-        history = presence(entity, start, end)
-        return [d for d in presence_days(history, first, last) if d.sessions]
+        return presence_days(presence(entity, start, end), first, last)
 
-    def wifi_unrecorded(cid: int, rs: RapportoStore, year: int, month: int) -> WifiBox:
-        """For the month page: proposals no punch covers yet, confirmable now, and anomalous
-        days with no punch at all. Never breaks the page: HA down is said in the box."""
-        rapporto = next(r for r in store.rapporti() if r.id == cid)
-        if presence is None or not rapporto.ha_entity:
-            return WifiBox(days=[], error="")
+    def tracked(cid: int) -> bool:
+        """Wifi presence set up, and a tracker for this rapporto."""
+        return presence is not None and any(r.id == cid and r.ha_entity for r in store.rapporti())
+
+    def wifi_unrecorded(
+        cid: int, rs: RapportoStore, contract: Contract, year: int, month: int
+    ) -> WifiBox:
+        """For the month page: proposals no punch covers yet, confirmable now, anomalous days
+        with no punch at all, and the spans she was certainly away for. Never breaks the
+        page: HA down is said in the box, and then nothing is away."""
+        if not tracked(cid):
+            return WifiBox(days=[], away={}, error="", tracked=False)
         moment = now()
         try:
             days = wifi_days(cid, year, month, moment)
         except (URLError, TimeoutError) as e:
-            return WifiBox(days=[], error=f"Home Assistant non raggiungibile: {e}")
+            error = f"Home Assistant non raggiungibile: {e}"
+            return WifiBox(days=[], away={}, error=error, tracked=True)
         except EntityGone as e:
-            return WifiBox(days=[], error=str(e))
+            return WifiBox(days=[], away={}, error=str(e), tracked=True)
         punches = closed_punches(rs, year, month)
         rejected = rs.wifi_rejected()
+        out = {  # a rejected day is a day she was not there (vjt 30/10)
+            d.day: away(
+                d.model_copy(update={"sessions": []}) if d.day in rejected else d,
+                contract.orario[d.day.weekday()],
+            )
+            for d in days
+        }
         todo: list[PresenceDay] = []
-        for d in (d for d in days if d.day not in rejected):
+        for d in (d for d in days if d.sessions and d.day not in rejected):
             ready = [
                 s
                 for s in d.proposals
@@ -849,7 +877,7 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
             stray = d.anomalies if not any(p.day == d.day for p in punches) else []
             if ready or stray:
                 todo.append(d.model_copy(update={"proposals": ready, "anomalies": stray}))
-        return WifiBox(days=todo, error="")
+        return WifiBox(days=todo, away=out, error="", tracked=True)
 
     @app.get("/r/{cid}/presenza/{year}/{month}", response_class=HTMLResponse)
     def presence_page(request: Request, cid: int, year: int, month: int) -> HTMLResponse:
@@ -871,7 +899,7 @@ def create_app(settings: Settings, now: Clock, presence: PresenceSource | None) 
                 "year": year,
                 "month": month,
                 "mese": MESI[month],
-                "days": days,
+                "days": [d for d in days if d.sessions],
                 "recorded": {
                     (d.day, s) for d in days for s in d.proposals if covered(d.day, s, punches)
                 },

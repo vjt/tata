@@ -35,10 +35,12 @@ class Proposal(Frozen):
 
 
 class Shortfall(Frozen):
-    """Scheduled time with no punch and no event: the employer must say what it was."""
+    """Scheduled time with no punch and no event: the employer must say what it was, unless
+    the wifi saw her away (`away`, vjt 2/11): then it is an absence by itself."""
 
     day: date
     span: Span
+    away: bool
 
 
 class Turno(Frozen):
@@ -94,7 +96,11 @@ def overruns(contract: Contract, punch: Punch) -> list[Span]:
 
 
 def shortfalls(
-    contract: Contract, events: list[Event], punches: list[Punch], now: datetime
+    contract: Contract,
+    events: list[Event],
+    punches: list[Punch],
+    now: datetime,
+    away: dict[date, list[Span]],
 ) -> list[Shortfall]:
     """Ended scheduled time to confirm, from the hire date to now: what no punch and no event
     explains, in spans no punch touches.
@@ -103,9 +109,9 @@ def shortfalls(
     is what clears it. A punch overlapping a scheduled span replaces it whole (vjt 16/10):
     that turno is what she punched, often a confirmed wifi proposal; the rest of the span is
     not worked and not paid (`unpunched`), with nothing to confirm. An open punch covers the
-    rest of its day.
+    rest of its day. Those within the day's `away` spans are flagged `away`.
     """
-    return _gaps(contract, events, punches, now, True)
+    return _gaps(contract, events, punches, now, True, away)
 
 
 def _gaps(
@@ -114,6 +120,7 @@ def _gaps(
     punches: list[Punch],
     now: datetime,
     skip_punched_spans: bool,
+    away: dict[date, list[Span]],
 ) -> list[Shortfall]:
     """Ended scheduled time no punch and no event covers; with `skip_punched_spans`, only in
     the scheduled spans no punch overlaps."""
@@ -142,7 +149,10 @@ def _gaps(
                 missing -= ev.span.minutes()
         for p in punched:
             missing -= set(range(p.start, MINUTES_PER_DAY if p.end is None else p.end))
-        result += [Shortfall(day=day, span=s) for s in _runs(missing)]
+        out = {m for s in away.get(day, []) for m in s.minutes()}
+        gaps = [Shortfall(day=day, span=s, away=True) for s in _runs(missing & out)]
+        gaps += [Shortfall(day=day, span=s, away=False) for s in _runs(missing - out)]
+        result += sorted(gaps, key=lambda g: g.span.start)
         day += timedelta(days=1)
     return result
 
@@ -160,7 +170,7 @@ def unpunched(
     next_month = date(year + month // 12, month % 12 + 1, 1)
     return [
         Event(id=0, day=s.day, kind=EventKind.ASSENZA, span=s.span, note="non timbrato")
-        for s in _gaps(contract, events, punches, datetime.combine(next_month, time(0)), False)
+        for s in _gaps(contract, events, punches, datetime.combine(next_month, time(0)), False, {})
     ]
 
 
